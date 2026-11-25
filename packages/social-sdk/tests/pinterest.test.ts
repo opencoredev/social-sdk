@@ -443,7 +443,7 @@ test("[feature:pinterest.publish.video] a video registers media, uploads to S3, 
   });
 });
 
-test("[feature:pinterest.publish.video] a processing video returns processing, and getDelivery creates the Pin once", async () => {
+test("[feature:pinterest.publish.video] a processing video returns processing; getDelivery stays read-only and continueVideoPin creates the Pin once", async () => {
   const workflowStore = new MemoryPinterestWorkflowStore();
 
   const { fetch, calls } = route({
@@ -452,11 +452,12 @@ test("[feature:pinterest.publish.video] a processing video returns processing, a
     ["GET " + api + "/v5/media/12345"]: [
       json(fixtures.media("processing")),
       json(fixtures.media("succeeded")),
+      json(fixtures.media("succeeded")),
     ],
     ["POST " + api + "/v5/pins"]: [json(fixtures.pin, 201)],
   });
 
-  const { social } = client(fetch, { workflowStore });
+  const { social, adapter } = client(fetch, { workflowStore });
 
   const result = await social.posts.publish({
     targets: [{ account, options: { boardId: "1" } }],
@@ -467,7 +468,13 @@ test("[feature:pinterest.publish.video] a processing video returns processing, a
   assert.equal(first.state, "processing");
   assert.ok(first.delivery);
 
-  const resumed = await social.posts.getDelivery(first.delivery);
+  // A status read reports a ready upload without writing anything.
+  const ready = await social.posts.getDelivery(first.delivery);
+  assert.equal(ready.state, "processing");
+  assert.equal(ready.backendState, "MEDIA_READY");
+  assert.equal(calls.filter((call) => call.url.pathname === "/v5/pins").length, 0);
+
+  const resumed = await adapter.native!.continueVideoPin({ delivery: first.delivery, context });
   assert.equal(resumed.state, "published");
   assert.equal(
     calls.filter((call) => call.method === "POST" && call.url.pathname === "/v5/pins").length,
@@ -482,7 +489,7 @@ test("[feature:pinterest.publish.video] a processing video returns processing, a
   // A repeated status read answers from the store and sends nothing.
   const again = await social.posts.getDelivery(first.delivery);
   assert.equal(again.state, "published");
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
 });
 
 test("a concurrent continuation of the same video is not run twice", async () => {
@@ -503,8 +510,8 @@ test("a concurrent continuation of the same video is not run twice", async () =>
 
   const { adapter } = client(route({}).fetch, { workflowStore });
 
-  const outcome = await adapter.posts!.getDelivery!(
-    {
+  const outcome = await adapter.native!.continueVideoPin({
+    delivery: {
       kind: "delivery",
       version: 1,
       backend: "default",
@@ -513,7 +520,7 @@ test("a concurrent continuation of the same video is not run twice", async () =>
       deliveryId: workflow.id,
     },
     context,
-  );
+  });
 
   assert.equal(outcome.state, "processing");
   assert.equal(outcome.backendState, "CLAIMED");
@@ -696,8 +703,8 @@ test("a continuation that claims a stale snapshot rereads the row and sends noth
   const { fetch, calls } = route({});
   const { adapter } = client(fetch, { workflowStore });
 
-  const outcome = await adapter.posts!.getDelivery!(
-    {
+  const outcome = await adapter.native!.continueVideoPin({
+    delivery: {
       kind: "delivery",
       version: 1,
       backend: "default",
@@ -706,7 +713,7 @@ test("a continuation that claims a stale snapshot rereads the row and sends noth
       deliveryId: workflow.id,
     },
     context,
-  );
+  });
 
   assert.ok(outcome.state === "published");
   assert.equal(outcome.post.postId, fixtures.pin.id);
@@ -965,7 +972,7 @@ test("a rate-limited video Pin request keeps its delivery and continues later", 
     ],
   });
 
-  const { social } = client(fetch);
+  const { social, adapter } = client(fetch);
 
   const result = await social.posts.publish({
     targets: [{ account, options: { boardId: "1" } }],
@@ -975,11 +982,11 @@ test("a rate-limited video Pin request keeps its delivery and continues later", 
   const outcome = only(result.outcomes);
   assert.ok(outcome.state === "failed");
   assert.equal(outcome.code, "rate_limited");
-  assert.deepEqual(outcome.retryDisposition, { kind: "after-delay", delayMs: 5000 });
+  assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
   assert.equal(outcome.mediaId, "12345");
   assert.ok(outcome.delivery);
 
-  const resumed = await social.posts.getDelivery(outcome.delivery);
+  const resumed = await adapter.native!.continueVideoPin({ delivery: outcome.delivery, context });
   assert.equal(resumed.state, "published");
   assert.equal(calls.filter((call) => call.url.pathname === "/v5/pins").length, 2);
 });
@@ -1069,4 +1076,68 @@ test("the default board list drops secret boards", async () => {
   );
   assert.equal(calls[0]?.url.searchParams.get("privacy"), null);
   assert.equal(page.nextCursor, undefined);
+});
+
+test("a Pin request cancelled before dispatch leaves the video continuable", async () => {
+  const abort = new AbortController();
+
+  /** Cancels the operation while the adapter saves the creating stage, before the Pin request. */
+  class AbortingStore extends MemoryPinterestWorkflowStore {
+    override async update(
+      id: string,
+      update: Parameters<MemoryPinterestWorkflowStore["update"]>[1],
+    ) {
+      if (update.stage === "creating") abort.abort();
+
+      return super.update(id, update);
+    }
+  }
+
+  const workflowStore = new AbortingStore();
+
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("succeeded"))],
+  });
+
+  const { adapter } = client(fetch, { workflowStore });
+
+  const outcome = await adapter.posts!.publishTarget(
+    {
+      targetIndex: 0,
+      targetKey: "0",
+      account,
+      content: { media: [video()] },
+      options: { boardId: "1" },
+    },
+    { ...context, signal: abort.signal },
+  );
+
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.code, "cancelled");
+  assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
+  assert.ok(outcome.delivery);
+  assert.equal((await workflowStore.get(outcome.delivery.deliveryId))?.stage, "processing");
+  assert.equal(calls.filter((call) => call.url.pathname === "/v5/pins").length, 0);
+});
+
+test("an empty 200 delete answer is not a confirmed deletion", async () => {
+  const ref = platformPostRef({
+    backend: "default",
+    platform: "pinterest",
+    accountId,
+    postId: fixtures.pin.id,
+  });
+
+  const { fetch } = route({
+    ["DELETE " + api + "/v5/pins/813744226420795884"]: [new Response("", { status: 200 })],
+  });
+
+  const error = await client(fetch)
+    .social.posts.removeFromPlatform(ref)
+    .catch((cause: unknown) => cause);
+
+  assert.ok(error instanceof SocialError);
+  assert.equal(error.code, "ambiguous_outcome");
 });

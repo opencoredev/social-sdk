@@ -16414,7 +16414,7 @@
               "video/quicktime"
             ]
           },
-          "notes": "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; continue it with posts.getDelivery. Needs an HTTPS thumbnail for the cover."
+          "notes": "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; native.continueVideoPin creates the Pin once the upload has succeeded. Needs an HTTPS thumbnail for the cover."
         },
         {
           "platform": "pinterest",
@@ -16426,7 +16426,7 @@
             "pins:read",
             "pins:write"
           ],
-          "notes": "Continues a processing video Pin from the workflow store: one media status read, then one Pin request."
+          "notes": "Read-only. Reports a stored video Pin result, or one media status read; MEDIA_READY means native.continueVideoPin can create the Pin."
         },
         {
           "platform": "pinterest",
@@ -16447,6 +16447,18 @@
           "requiredScopes": [
             "user_accounts:read"
           ]
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.publish.continue",
+          "availability": "available",
+          "requiredScopes": [
+            "boards:read",
+            "boards:write",
+            "pins:read",
+            "pins:write"
+          ],
+          "notes": "native.continueVideoPin: the write that creates a processed video Pin. It bypasses normalized authorization, so gate it like posts.publish."
         },
         {
           "platform": "pinterest",

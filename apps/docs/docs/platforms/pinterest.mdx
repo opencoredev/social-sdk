@@ -154,24 +154,43 @@ const video = await videoSocial.posts.publish({
 
 const [outcome] = video.outcomes;
 
-if (outcome?.state === "processing" && outcome.delivery) {
-  // Later, for example from a job: one status read, and the Pin request once the video is ready.
-  const next = await videoSocial.posts.getDelivery(outcome.delivery);
-  if (next.state === "published") console.log(next.post.postId);
+if (outcome?.delivery && (outcome.state === "processing" || outcome.state === "failed")) {
+  // Later, from a job that may publish for this account.
+  const native = videoSocial.native("default", { acknowledgeUnsafe: true });
+  if (!native) throw new Error("Pinterest native module is unavailable");
+
+  const status = await videoSocial.posts.getDelivery(outcome.delivery);
+
+  if (status.state === "processing" && status.backendState === "MEDIA_READY") {
+    const next = await native.continueVideoPin({
+      delivery: outcome.delivery,
+      context: {
+        backendInstance: "default",
+        correlationId: "pinterest-video",
+        retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+      },
+    });
+
+    if (next.state === "published") console.log(next.post.postId);
+  }
 }
 ```
 
 Pass the video as a Blob of an MP4, M4V or MOV file, 4 seconds to 5 minutes long, and an HTTPS `thumbnail` for the cover, sent as `cover_image_url`. The API schema also lists `cover_image_key_frame_time`, but Pinterest's video Pin guide says a valid cover image URL is required, so the adapter asks for one. The adapter uploads up to 2 GiB; Pinterest states no size limit for organic video Pins.
 
-`publishTarget` registers the upload, posts the file with the `upload_parameters` to Pinterest's S3 bucket, and reads the media status once. It does not poll. When the status is `succeeded` it creates the Pin and returns `published` with its ID. Pinterest notes that a new video Pin can still show `creative_type: REGULAR` for a few seconds while it finishes processing; the Pin exists either way. while it is `registered` or `processing` it returns `processing` with a delivery reference. Call `posts.getDelivery` with that reference to continue. Continuing can send the Pin request the original publish prepared, so give `posts.getDelivery` only to callers or workers that may publish for the account. A failed status read or a rate-limited Pin request returns `failed` with the same delivery reference, the `mediaId` and a retry disposition, and the workflow stays continuable. A `failed` status returns a `failed` outcome with code `media_error` and the `mediaId`.
+`publishTarget` registers the upload, posts the file with the `upload_parameters` to Pinterest's S3 bucket, and reads the media status once. It does not poll. When the status is `succeeded` it creates the Pin and returns `published` with its ID. Pinterest notes that a new video Pin can show `creative_type: REGULAR` for a few seconds while it finishes processing; the Pin exists either way. While the status is `registered` or `processing`, the outcome is `processing` with a delivery reference. A `failed` status returns a `failed` outcome with code `media_error` and the `mediaId`.
+
+Continuing is split into a read and a write. `posts.getDelivery` is read-only: it returns the stored result, or reads the media status once and reports `processing` with `backendState: "MEDIA_READY"` when the upload is ready. It never creates a Pin. The native `continueVideoPin` sends that write: one status read, then at most one `POST /v5/pins`. Native calls bypass normalized authorization, so call it only from code that may publish for the account.
+
+A failed status read, a rate-limited Pin request, or a Pin request cancelled or timed out before it was sent returns `failed` with the same delivery reference, the `mediaId` and `reconcile-first`, and the workflow stays continuable. Continue it with `continueVideoPin` rather than publishing the target again, which would upload the video a second time.
 
 The workflow store keeps the pending Pin request. The default `MemoryPinterestWorkflowStore` lives in the process, which is fine for a script. On a server, implement `PinterestWorkflowStore` over shared storage so a processing video can be continued after a restart. Its `claim` must be atomic: a continuation rereads the row after it wins the claim, so it never acts on a stale copy, and one that loses the claim returns `processing` with `backendState: "CLAIMED"` and sends nothing.
 
 ### Uncertain writes
 
-The adapter saves the workflow as `creating` before it sends the Pin request. If that request gets no readable answer, such as a 5xx or a dropped connection, the outcome is `unknown` with `ambiguous-submission`, and later `getDelivery` calls keep returning `unknown` without sending the request again. Check the board before you publish again. The same applies to image Pins: a 2xx answer without a numeric Pin ID is `unknown`, not `failed`.
+The adapter saves the workflow as `creating` before it sends the Pin request. If that request gets no readable answer, such as a 5xx or a dropped connection, the outcome is `unknown` with `ambiguous-submission`, and later `getDelivery` and `continueVideoPin` calls keep returning `unknown` without sending the request again. Check the board before you publish again. The same applies to image Pins: a 2xx answer without a numeric Pin ID is `unknown`, not `failed`.
 
-A rejection Pinterest states is a `failed` outcome: 401 is `reconnect_required`, 403 is `missing_permission`, and 429 is `rate_limited` with the `Retry-After` delay when Pinterest sends one. Writes are never retried for you.
+A rejection Pinterest states is a `failed` outcome: 401 is `reconnect_required`, 403 is `missing_permission`, and 429 is `rate_limited` with the `Retry-After` delay when Pinterest sends one. On a video workflow the retry disposition is `reconcile-first`, so continue it rather than uploading again. Writes are never retried for you.
 
 ### Delete a Pin
 
