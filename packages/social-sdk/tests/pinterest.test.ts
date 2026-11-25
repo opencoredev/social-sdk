@@ -1541,3 +1541,53 @@ test("a store that fails both the save and the release after a rejected Pin repo
   assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
   assert.ok(outcome.delivery);
 });
+
+test("an unusable media registration answer fails without a delivery", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [
+      new Response("null", { status: 201, headers: { "content-type": "application/json" } }),
+    ],
+  });
+
+  const result = await client(fetch).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.deepEqual(outcome.retryDisposition, { kind: "never" });
+  assert.equal(outcome.delivery, undefined);
+  assert.equal(calls.length, 1);
+});
+
+test("a created Pin whose save and release both fail stays published and reports both", async () => {
+  class DownStore extends MemoryPinterestWorkflowStore {
+    override async update(id: string, update: Partial<Omit<PinterestVideoWorkflow, "id">>) {
+      if (update.stage === "published") throw new Error("store unavailable");
+
+      return super.update(id, update);
+    }
+
+    override async release(): Promise<void> {
+      throw new Error("store unavailable");
+    }
+  }
+
+  const { fetch } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("succeeded"))],
+    ["POST " + api + "/v5/pins"]: [json(fixtures.pin, 201)],
+  });
+
+  const result = await client(fetch, { workflowStore: new DownStore() }).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "published");
+  assert.equal(outcome.post.postId, fixtures.pin.id);
+  assert.equal(outcome.backendState, "CREATED_WORKFLOW_SAVE_FAILED,CLAIM_RELEASE_FAILED");
+});

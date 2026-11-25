@@ -963,10 +963,9 @@ export function pinterest(
       // Keep an earlier save failure visible: both need repair before the workflow continues.
       return {
         ...outcome,
-        backendState:
-          outcome.backendState === "WORKFLOW_SAVE_FAILED"
-            ? "WORKFLOW_SAVE_FAILED,CLAIM_RELEASE_FAILED"
-            : "CLAIM_RELEASE_FAILED",
+        backendState: outcome.backendState?.endsWith("_FAILED")
+          ? outcome.backendState + ",CLAIM_RELEASE_FAILED"
+          : "CLAIM_RELEASE_FAILED",
       };
     }
 
@@ -991,13 +990,16 @@ export function pinterest(
 
   /** `POST /v5/media`. Registering an upload sends no file and creates nothing visible. */
   const registerVideo = async (context: AdapterOperationContext) => {
-    const registered = object(await request("/media", context, { media_type: "video" }));
+    const answer = await request("/media", context, { media_type: "video" });
+    const registered = isJsonObject(answer) ? answer : {};
     const mediaId = registered["media_id"];
     const uploadUrl = registered["upload_url"];
     const parameters = registered["upload_parameters"];
 
     if (!numericId(mediaId) || !isString(uploadUrl) || !isJsonObject(parameters))
-      throw mediaError("Pinterest returned an unusable media registration. No Pin was created.");
+      throw mediaError(
+        "Pinterest did not confirm a usable media registration. No file or Pin was sent.",
+      );
 
     return { mediaId, uploadUrl, parameters };
   };
@@ -1365,7 +1367,8 @@ export function pinterest(
             observedAt: now(),
             state: "failed",
             code: error.code,
-            message: "Pinterest did not register the video upload. No file or Pin was sent.",
+            message:
+              "Pinterest did not confirm the video upload registration. No file or Pin was sent.",
             retryDisposition: stated ? error.retryDisposition : { kind: "never" },
           };
         }
