@@ -2,8 +2,8 @@
 title: Instagram
 description: Publish Instagram professional-account media and use typed native Reels, Stories, hashtag, limit, and mention operations.
 seo:
-  title: Instagram API for Node.js and TypeScript
-  description: Publish images, Reels, carousels and Stories to Instagram professional accounts from Node.js with the Instagram content publishing API, typed in TypeScript.
+  title: Instagram API SDK for Node.js and TypeScript
+  description: Publish images, Reels, carousels and Stories, and search hashtags, from Node.js or Bun with a typed Instagram API SDK on npm for TypeScript and JavaScript.
 ---
 
 Instagram publishing goes through its content publishing API: create a media container for a professional (Business or Creator) account, wait for Instagram to process it, then call `media_publish`. The Social SDK Instagram adapter runs that container flow from your Node.js or Bun server for images, single videos (published as Reels), and carousels through `social.posts.publish`, and for Stories through a native method. Each post returns a typed outcome, including `processing` while Instagram is still working on the media.

@@ -268,20 +268,23 @@ async function runCommand(args: readonly string[], io: CliIO): Promise<number> {
   const options = new Map<string, string>();
 
   for (let index = 1; index < args.length; index++) {
-    const arg = args[index]!;
+    const arg = args[index];
 
     if (arg === "--json") continue;
+    const value = args[index + 1];
 
     if (
+      arg === undefined ||
       !["--adapter", "--file"].includes(arg) ||
-      !args[index + 1] ||
-      args[index + 1]!.startsWith("--") ||
+      !value ||
+      value.startsWith("--") ||
       options.has(arg)
     )
       return finish(2, {
         error: "Unknown, duplicate or missing option. Use help for supported arguments.",
       });
-    options.set(arg, args[++index]!);
+    options.set(arg, value);
+    index++;
   }
 
   if (command === "help" || command === "--help")

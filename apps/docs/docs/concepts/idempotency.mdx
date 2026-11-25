@@ -42,7 +42,7 @@ The claim stores a fingerprint of every prepared target: account, content, optio
 
 ## Retry budgets are bounded
 
-Calls accept `retryBudget: { maxAttempts, maxElapsedMs }`. The default is one attempt within 30 seconds. Reads may retry within that budget. Public writes are dispatched once; the transport does not resend a mutation whose response was lost.
+Calls accept `retryBudget: { maxAttempts, maxElapsedMs }`. The default is one attempt within 30 seconds. Reads may retry within that budget. By default, public writes are dispatched once; the transport does not resend a mutation whose response was lost. If you opt in with `posts.publish(request, { retry })`, the client retries only targets confirmed not submitted (such as an explicit `after-delay` rate limit or local capacity rejection) under the same per-target idempotency key and within the same shared `retryBudget.maxElapsedMs` deadline.
 
 ## Unknown is not failure
 

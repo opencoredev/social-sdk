@@ -177,6 +177,13 @@ export function renderGuidesIndex(): string {
             <a href="/docs/integrations/inngest">Inngest</a> or <a href="/docs/integrations/trigger-dev">Trigger.dev</a>.
             <a href="/docs/publishing">Publishing</a> explains the outcome you get back for each network.
           </p>
+          <h2 id="tools">Tools</h2>
+          <p>
+            Estimate a month of posting with the <a href="/tools/api-cost-calculator">API cost
+            calculator</a>, or check a post against every platform's limits with the
+            <a href="/tools/platform-limits">post limits checker</a>. Both are listed under
+            <a href="/tools">tools</a>.
+          </p>
           ${cloudCallout}
         </div>`,
   });

@@ -5,6 +5,8 @@ description: Verify raw webhooks from managed backends and direct platforms, qua
 
 Verify before parsing. Zernio uses an `X-Zernio-Signature` HMAC-SHA256 digest over the untouched request bytes. Post for Me uses its `Post-For-Me-Webhook-Secret` shared-secret header; its verification does not authenticate the body. Both checks require the endpoint secret on the server and bound the body size. PostFast does not send webhooks, and Postiz webhooks carry no signature, so poll `posts.getDelivery` for posts on either backend.
 
+Buffer's public API has no webhooks either, so PostFast, Postiz, and Buffer deliveries all need polling. Each `posts.getDelivery` call costs provider requests against your API quota. PostFast makes one request per call. Postiz makes one request that lists your posts from one day before to one day after the post's time. Buffer makes one request for the post and one per organization to confirm the channel belongs to you, plus one to list organizations unless you pass `organizationId` to `buffer()`. Poll each pending delivery with a growing interval, for example one minute and then longer, and stop once it reaches a final state. `SocialScheduler` polls through `posts.reconcile` once per `pollIntervalMs` (default one minute), up to `maxPolls` times per step (default 30).
+
 `@opencoredev/social-sdk/server` exports one verifier per provider:
 
 ```ts

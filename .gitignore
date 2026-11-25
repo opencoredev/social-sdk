@@ -37,9 +37,6 @@ lerna-debug.log*
 .turbo
 .nx
 
-# Better-T-Stack
-.alchemy
-
 # Testing
 coverage
 .nyc_output

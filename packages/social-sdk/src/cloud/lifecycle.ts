@@ -23,9 +23,10 @@ type ScopedRef = BackendPostRef | ScheduledJobRef | PlatformPostRef;
 
 type Request = ReturnType<typeof managedHttp>;
 
-const reject = (message: string): never => {
+// A declaration, not an arrow, so a call narrows like a throw statement.
+function reject(message: string): never {
   throw new SocialError({ code: "invalid_input", operation: "posts.lifecycle", message });
-};
+}
 
 const unconfirmed = (): never => {
   throw new SocialError({
@@ -91,9 +92,10 @@ export function managedLifecycle(
       object,
     );
 
-    if (entries.length !== 1)
+    const [entry] = entries;
+
+    if (entries.length !== 1 || entry === undefined)
       reject("This operation requires a backend record with exactly one destination.");
-    const entry = entries[0]!;
     const rawId = provider === "zernio" ? entry["accountId"] : entry["id"];
     const accountId = isString(rawId) ? rawId : object(rawId)["_id"];
 

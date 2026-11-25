@@ -27,88 +27,109 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
-      "import": "./dist/testing/index.js"
+      "import": "./dist/testing/index.js",
+      "default": "./dist/testing/index.js"
     },
     "./cloud/zernio": {
       "types": "./dist/cloud/zernio.d.ts",
-      "import": "./dist/cloud/zernio.js"
+      "import": "./dist/cloud/zernio.js",
+      "default": "./dist/cloud/zernio.js"
     },
     "./cloud/zernio-native": {
       "types": "./dist/cloud/zernio-native.d.ts",
-      "import": "./dist/cloud/zernio-native.js"
+      "import": "./dist/cloud/zernio-native.js",
+      "default": "./dist/cloud/zernio-native.js"
     },
     "./cloud/post-for-me": {
       "types": "./dist/cloud/post-for-me.d.ts",
-      "import": "./dist/cloud/post-for-me.js"
+      "import": "./dist/cloud/post-for-me.js",
+      "default": "./dist/cloud/post-for-me.js"
     },
     "./cloud/postfast": {
       "types": "./dist/cloud/postfast.d.ts",
-      "import": "./dist/cloud/postfast.js"
+      "import": "./dist/cloud/postfast.js",
+      "default": "./dist/cloud/postfast.js"
     },
     "./cloud/postiz": {
       "types": "./dist/cloud/postiz.d.ts",
-      "import": "./dist/cloud/postiz.js"
+      "import": "./dist/cloud/postiz.js",
+      "default": "./dist/cloud/postiz.js"
     },
     "./cloud/buffer": {
       "types": "./dist/cloud/buffer.d.ts",
-      "import": "./dist/cloud/buffer.js"
+      "import": "./dist/cloud/buffer.js",
+      "default": "./dist/cloud/buffer.js"
     },
     "./server": {
       "types": "./dist/server/index.d.ts",
-      "import": "./dist/server/index.js"
+      "import": "./dist/server/index.js",
+      "default": "./dist/server/index.js"
     },
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",
-      "import": "./dist/mcp/index.js"
+      "import": "./dist/mcp/index.js",
+      "default": "./dist/mcp/index.js"
     },
     "./ai": {
       "types": "./dist/ai/index.d.ts",
-      "import": "./dist/ai/index.js"
+      "import": "./dist/ai/index.js",
+      "default": "./dist/ai/index.js"
     },
     "./inbox": {
       "types": "./dist/inbox.d.ts",
-      "import": "./dist/inbox.js"
+      "import": "./dist/inbox.js",
+      "default": "./dist/inbox.js"
     },
     "./media-staging": {
       "types": "./dist/media-staging.d.ts",
-      "import": "./dist/media-staging.js"
+      "import": "./dist/media-staging.js",
+      "default": "./dist/media-staging.js"
     },
     "./package.json": "./package.json",
     "./bluesky": {
       "types": "./dist/platforms/bluesky.d.ts",
-      "import": "./dist/platforms/bluesky.js"
+      "import": "./dist/platforms/bluesky.js",
+      "default": "./dist/platforms/bluesky.js"
     },
     "./youtube": {
       "types": "./dist/platforms/youtube.d.ts",
-      "import": "./dist/platforms/youtube.js"
+      "import": "./dist/platforms/youtube.js",
+      "default": "./dist/platforms/youtube.js"
     },
     "./tiktok": {
       "types": "./dist/platforms/tiktok.d.ts",
-      "import": "./dist/platforms/tiktok.js"
+      "import": "./dist/platforms/tiktok.js",
+      "default": "./dist/platforms/tiktok.js"
     },
     "./linkedin": {
       "types": "./dist/platforms/linkedin.d.ts",
-      "import": "./dist/platforms/linkedin.js"
+      "import": "./dist/platforms/linkedin.js",
+      "default": "./dist/platforms/linkedin.js"
     },
     "./x": {
       "types": "./dist/platforms/x.d.ts",
-      "import": "./dist/platforms/x.js"
+      "import": "./dist/platforms/x.js",
+      "default": "./dist/platforms/x.js"
     },
     "./threads": {
       "types": "./dist/platforms/threads.d.ts",
-      "import": "./dist/platforms/threads.js"
+      "import": "./dist/platforms/threads.js",
+      "default": "./dist/platforms/threads.js"
     },
     "./instagram": {
       "types": "./dist/platforms/instagram.d.ts",
-      "import": "./dist/platforms/instagram.js"
+      "import": "./dist/platforms/instagram.js",
+      "default": "./dist/platforms/instagram.js"
     },
     "./facebook": {
       "types": "./dist/platforms/facebook.d.ts",
-      "import": "./dist/platforms/facebook.js"
+      "import": "./dist/platforms/facebook.js",
+      "default": "./dist/platforms/facebook.js"
     }
   },
   "publishConfig": {

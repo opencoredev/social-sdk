@@ -46,6 +46,16 @@ it("CLI capabilities uses each actual adapter manifest without making any networ
   }
 });
 
+it("CLI zernio capabilities include the native declarations served by zernioNative", async () => {
+  // zernioNative is a companion object, not an adapter; its declarations live in the zernio
+  // manifest, so `--adapter zernio` already prints them.
+  const result = await run(["capabilities", "--adapter", "zernio", "--json"]);
+  const capabilities = array(object(result.data["manifest"])["capabilities"]).map(object);
+
+  assert.equal(result.code, 0);
+  assert.ok(capabilities.some((entry) => entry["surface"] === "native"));
+});
+
 it("CLI validates its own example and reports invalid inputs without echoing content", async () => {
   const example = await run(["examples", "--json"]);
 

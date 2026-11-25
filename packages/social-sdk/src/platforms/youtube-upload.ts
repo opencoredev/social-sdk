@@ -26,27 +26,39 @@ export interface YouTubeUploadOptions {
   fetch?: typeof globalThis.fetch;
   signal?: AbortSignal;
   timeoutMs?: number;
-  /** Internal absolute deadline shared by a resumable invocation. */
+  /**
+   * Absolute deadline in epoch milliseconds shared by several calls of one invocation, such as
+   * begin then send. Without it, each call gets its own `timeoutMs` budget from when it starts.
+   */
   readonly deadlineAt?: number;
+  /** Current time in epoch milliseconds. Defaults to `Date.now`; inject it in tests. */
+  readonly now?: () => number;
 }
 
-const deadlines = new WeakMap<object, number>();
+/** Options for one begin, query, or send call, with its absolute deadline fixed at entry. */
+type DeadlineOptions = YouTubeUploadOptions & { readonly deadlineAt: number };
 
-function deadlineFor(options: YouTubeUploadOptions): number {
-  if (options.deadlineAt !== undefined) return options.deadlineAt;
-  const existing = deadlines.get(options);
+/** Largest delay `setTimeout` honors; Node and Bun fire a longer one after 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
 
-  if (existing !== undefined) return existing;
-  const deadline = Date.now() + (options.timeoutMs ?? 120_000);
-  deadlines.set(options, deadline);
+/**
+ * Fix the deadline when a call starts. A reused options object therefore never inherits the
+ * deadline of an earlier, possibly expired, call. The deadline is capped at the timer limit,
+ * so every request and read timeout below it stays a single valid timer.
+ */
+export function withYouTubeUploadDeadline(options: YouTubeUploadOptions): DeadlineOptions {
+  const startedAt = (options.now ?? Date.now)();
 
-  return deadline;
+  const deadlineAt = Math.min(
+    options.deadlineAt ?? startedAt + (options.timeoutMs ?? 120_000),
+    startedAt + MAX_TIMER_MS,
+  );
+
+  return { ...options, deadlineAt };
 }
 
-function remaining(options: YouTubeUploadOptions): number {
-  const limit = deadlineFor(options);
-
-  return limit - Date.now();
+function remaining(options: DeadlineOptions): number {
+  return options.deadlineAt - (options.now ?? Date.now)();
 }
 
 async function bounded<T>(
@@ -131,7 +143,7 @@ function sessionUrl(value: string): URL {
 async function uploadRequest(
   url: URL,
   init: RequestInit,
-  options: YouTubeUploadOptions,
+  options: DeadlineOptions,
 ): Promise<Response> {
   if (options.signal?.aborted)
     throw new SocialError({
@@ -315,7 +327,7 @@ export async function beginYouTubeUpload(
       },
       body: JSON.stringify(input.metadata),
     },
-    options,
+    withYouTubeUploadDeadline(options),
   );
 
   const url = string(response.headers.get("location"));
@@ -407,7 +419,7 @@ export async function queryYouTubeUpload(
         method: "PUT",
         headers: { "Content-Range": `bytes */${session.size}`, "Content-Length": "0" },
       },
-      options,
+      withYouTubeUploadDeadline(options),
     ),
   );
 }
@@ -425,7 +437,8 @@ export async function sendYouTubeUpload(
       operation: "youtube.upload",
       message: "Resume at a confirmed offset within the file.",
     });
-  const operationOptions = options;
+  // One deadline covers every source read and chunk of this call.
+  const operationOptions = withYouTubeUploadDeadline(options);
   const source = media.source;
 
   if (source.kind !== "blob" && source.kind !== "stream")
