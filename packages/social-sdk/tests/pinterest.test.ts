@@ -1493,3 +1493,51 @@ test("a malformed media status object is unreadable and stays continuable", asyn
   assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
   assert.equal(calls.length, 3);
 });
+
+test("a failed media registration is a failed outcome, since no file or Pin was sent", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.error(1, "Unavailable"), 503)],
+  });
+
+  const result = await client(fetch).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.delivery, undefined);
+  assert.equal(calls.length, 1);
+});
+
+test("a store that fails both the save and the release after a rejected Pin reports both", async () => {
+  class DownStore extends MemoryPinterestWorkflowStore {
+    override async update(id: string, update: Partial<Omit<PinterestVideoWorkflow, "id">>) {
+      if (update.stage === "processing") throw new Error("store unavailable");
+
+      return super.update(id, update);
+    }
+
+    override async release(): Promise<void> {
+      throw new Error("store unavailable");
+    }
+  }
+
+  const { fetch } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("succeeded"))],
+    ["POST " + api + "/v5/pins"]: [json(fixtures.error(8, "Rate limited"), 429)],
+  });
+
+  const result = await client(fetch, { workflowStore: new DownStore() }).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.backendState, "WORKFLOW_SAVE_FAILED,CLAIM_RELEASE_FAILED");
+  assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
+  assert.ok(outcome.delivery);
+});

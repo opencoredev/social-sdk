@@ -654,7 +654,7 @@ export function pinterest(
     error: SocialError,
     continuable: boolean,
     fromPublish: boolean,
-  ): DeliveryOutcome => ({
+  ): Extract<DeliveryOutcome, { readonly state: "failed" }> => ({
     state: "failed",
     targetIndex: 0,
     account,
@@ -801,7 +801,11 @@ export function pinterest(
       } catch {
         // The row still says `creating`, so later calls report unknown and never resend. Pinterest
         // did reject this request; a caller who has checked the board can reset the row.
-        return { ...rejected, backendState: "WORKFLOW_SAVE_FAILED" };
+        return {
+          ...rejected,
+          backendState: "WORKFLOW_SAVE_FAILED",
+          retryDisposition: { kind: "reconcile-first" },
+        };
       }
 
       return rejected;
@@ -956,7 +960,14 @@ export function pinterest(
     try {
       await workflows.release(id);
     } catch {
-      return { ...outcome, backendState: "CLAIM_RELEASE_FAILED" };
+      // Keep an earlier save failure visible: both need repair before the workflow continues.
+      return {
+        ...outcome,
+        backendState:
+          outcome.backendState === "WORKFLOW_SAVE_FAILED"
+            ? "WORKFLOW_SAVE_FAILED,CLAIM_RELEASE_FAILED"
+            : "CLAIM_RELEASE_FAILED",
+      };
     }
 
     return outcome;
@@ -1082,7 +1093,14 @@ export function pinterest(
       });
     } catch (error) {
       // The operation budget ran out or was cancelled before the upload started.
-      if (error instanceof SocialError) return error;
+      if (error instanceof SocialError)
+        return new SocialError({
+          code: error.code === "cancelled" ? "cancelled" : "timeout",
+          operation: "media.upload",
+          message: "The operation ended before the video upload started. No file or Pin was sent.",
+          details: { mediaId },
+          retryDisposition: { kind: "never" },
+        });
 
       // Anything else cannot prove the file stayed unsent.
       if (!(error instanceof HttpError)) return "unconfirmed";
@@ -1332,7 +1350,26 @@ export function pinterest(
           return { ...published(target.account, pinId), targetIndex: target.targetIndex };
         }
 
-        const registration = await registerVideo(context);
+        let registration: Awaited<ReturnType<typeof registerVideo>>;
+
+        try {
+          registration = await registerVideo(context);
+        } catch (error) {
+          if (!(error instanceof SocialError)) throw error;
+          // Registration sends no file, so even an unanswered POST /v5/media leaves no Pin.
+          const stated = error.code !== "ambiguous_outcome" && error.code !== "timeout";
+
+          return {
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: now(),
+            state: "failed",
+            code: error.code,
+            message: "Pinterest did not register the video upload. No file or Pin was sent.",
+            retryDisposition: stated ? error.retryDisposition : { kind: "never" },
+          };
+        }
+
         const { mediaId } = registration;
         const base = { targetIndex: target.targetIndex, account: target.account, mediaId };
         let workflow: PinterestVideoWorkflow;
