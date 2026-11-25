@@ -11,7 +11,8 @@ seo:
 To post to social networks from your app without a hosted service in between,
 use the direct route. Social SDK is an MIT-licensed TypeScript library that
 runs inside your own Node.js 22.12+ or Bun server and calls each platform's API
-directly: X, Bluesky, Threads, Instagram, LinkedIn, TikTok, and YouTube. A
+directly: X, Bluesky, Threads, Instagram, Facebook Pages, LinkedIn, TikTok,
+and YouTube. A
 direct integration needs no Social SDK account, and the library sends no
 telemetry.
 
@@ -36,8 +37,7 @@ What you run yourself:
 If you'd rather run a scheduling app with its own connection screens, Postiz is
 open source and can be self-hosted, and the [Postiz backend](/backends/postiz)
 connects Social SDK to your instance. A self-hosted Postiz still needs your own
-developer app for most networks. That adapter is on `main` and is not in the
-published 0.5.0 package yet.
+developer app for most networks. That adapter is available starting in 0.6.0.
 
 ## Compare the routes
 

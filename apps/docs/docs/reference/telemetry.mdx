@@ -3,7 +3,7 @@ title: CLI telemetry
 description: What the social-sdk CLI sends, when it sends it, and every way to turn it off. The SDK library sends no telemetry.
 ---
 
-The `social-sdk` command-line tool sends one anonymous event each time you run a command, including `social-sdk mcp`. The maintainers use the counts to see how many people use the CLI each day and week, which commands they run, and which adapters they check.
+The `social-sdk` command-line tool sends one anonymous event each time you run a command, including `social-sdk mcp`, while telemetry is on. Sending is best-effort, and the `telemetry` command itself sends nothing. The maintainers use the counts to see how many people use the CLI each day and week, which commands they run, and which adapters they check.
 
 Telemetry covers the CLI only. Importing `@opencoredev/social-sdk` or any of its subpaths, including `/server` and `/mcp`, never sends telemetry from your application.
 
@@ -41,7 +41,7 @@ Events go to the project's analytics service through `https://y.social-sdk.dev`.
 
 ## When it is sent
 
-On the first run with telemetry on, the CLI creates the random ID, saves it, and prints a notice to stderr. Stdout stays clean for `--json` output and the MCP protocol. After that, each command sends one event while it runs.
+On the first run with telemetry on, the CLI creates the random ID, saves it, and prints a notice to stderr. Stdout stays clean for `--json` output and the MCP protocol. After that, each command other than `telemetry` tries to send one event while it runs.
 
 If the ID can't be saved, for example on a read-only file system, the CLI sends nothing rather than counting you as a new user every time. If the network is slow or down, the CLI waits at most 1.5 seconds for the event and then gives up. The command's output and exit code are the same whether the event is sent or not.
 
