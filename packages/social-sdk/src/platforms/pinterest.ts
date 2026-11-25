@@ -1013,7 +1013,14 @@ export function pinterest(
     context: AdapterOperationContext,
     fromPublish: boolean,
   ): Promise<DeliveryOutcome> => {
-    if (!(await workflows.claim(id)))
+    if (!(await workflows.claim(id))) {
+      if ((await workflows.get(id)) === undefined)
+        throw new SocialError({
+          code: "not_found",
+          operation: "pinterest.posts.status",
+          message: "The Pinterest video workflow is no longer in the store.",
+        });
+
       return {
         targetIndex: 0,
         account,
@@ -1022,6 +1029,7 @@ export function pinterest(
         state: "processing",
         backendState: "CLAIMED",
       };
+    }
 
     let outcome: DeliveryOutcome;
 

@@ -1735,6 +1735,52 @@ test("settled workflows expire on lookup, and a published row without a Pin ID i
   assert.equal((await workflowStore.get(claimed.id))?.stage, "failed");
 });
 
+test("a continuation that loses the claim to an expired row reports not_found", async () => {
+  /** The row is found by the first read, then another worker settles it and it expires. */
+  class ExpiringStore extends MemoryPinterestWorkflowStore {
+    reads = 0;
+
+    override async claim() {
+      return false;
+    }
+
+    override async get(id: string) {
+      this.reads++;
+
+      return this.reads === 1 ? super.get(id) : undefined;
+    }
+  }
+
+  const workflowStore = new ExpiringStore();
+
+  const workflow = await workflowStore.create({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "processing",
+  });
+
+  const { fetch, calls } = route({});
+  const { adapter } = client(fetch, { workflowStore });
+
+  await assert.rejects(
+    adapter.native!.continueVideoPin({
+      delivery: {
+        kind: "delivery",
+        version: 1,
+        backend: "default",
+        platform: "pinterest",
+        accountId,
+        deliveryId: workflow.id,
+      },
+      context,
+    }),
+    (error) => error instanceof SocialError && error.code === "not_found",
+  );
+  assert.equal(calls.length, 0);
+});
+
 test("a published row needs a numeric Pin ID to count as settled", async () => {
   let time = 0;
   const workflowStore = new MemoryPinterestWorkflowStore({ retentionMs: 1, now: () => time });

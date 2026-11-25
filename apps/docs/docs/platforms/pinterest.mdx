@@ -161,7 +161,11 @@ if (outcome?.delivery && outcome.state !== "published") {
 
   const status = await videoSocial.posts.getDelivery(outcome.delivery);
 
-  if (status.state === "processing" && status.backendState === "MEDIA_READY") {
+  // A failed media status is continued too, so the workflow is settled and can expire.
+  if (
+    (status.state === "processing" && status.backendState === "MEDIA_READY") ||
+    (status.state === "failed" && status.backendState === "failed")
+  ) {
     const next = await native.continueVideoPin({
       delivery: outcome.delivery,
       context: {
