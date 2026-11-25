@@ -4,17 +4,27 @@ import type { AuthorizationPolicy, GraphAdapter, JobRunner, SocialAdapter } from
 import { SocialError, type SocialErrorCode } from "./errors.js";
 import { definedFields } from "./fields.js";
 import { isString } from "../transport/validation.js";
-import type { InboxAggregation, MediaStaging, OutcomeRecovery } from "./extensions.js";
+import type {
+  InboxAggregation,
+  MediaStaging,
+  OutcomeRecovery,
+  StagedTarget,
+} from "./extensions.js";
 import {
   executionOperationFor,
+  implementsMethod,
   inboxSourceScope,
   isNonBlankStringInput,
   isObjectInput,
   makeContext,
   mapConcurrent,
+  MAX_TIMEOUT_MS,
   preparationIssue,
+  publishRetryDelay,
+  publishRetryPolicy,
   targetKey,
   unrecordedOutcome,
+  waitToRetry,
   withPreflightParents,
   type PublicationPlan,
 } from "./client-support.js";
@@ -84,6 +94,26 @@ export interface PublishCallOptions {
   readonly signal?: AbortSignal;
   readonly authorization?: AuthorizationContext;
   readonly retryBudget?: RetryBudget;
+}
+
+/**
+ * Opt-in retries for `posts.publish`. Only a target that provably was not posted is sent
+ * again: a `failed` outcome whose `retryDisposition` is `after-delay` (such as a provider
+ * rate limit) or a `not-submitted` outcome with reason `capacity`. Each retry happens inside
+ * the same call, under the same idempotency claim and per-target key, before the outcome is
+ * saved. `unknown`, `accepted`, and every other outcome are returned as they are.
+ */
+export interface PublishRetryPolicy {
+  /** Attempts per target, including the first: an integer from 1 through 5. */
+  readonly maxAttempts: number;
+  /** Longest wait before one retry. A target that asks for longer is not retried. Defaults to 60 000. */
+  readonly maxDelayMs?: number;
+  /** Wait before retrying a target the local concurrency limit turned away. Defaults to 1 000. */
+  readonly capacityDelayMs?: number;
+}
+
+export interface PublishOptions extends PublishCallOptions {
+  readonly retry?: PublishRetryPolicy;
 }
 
 /** One place `inbox.list` reads from. */
@@ -204,7 +234,7 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
     prepare<const T extends PublishRequest>(request: CheckedPublishRequest<T>): PublishPreparation;
     publish<const T extends PublishRequest>(
       request: CheckedPublishRequest<T>,
-      options?: PublishCallOptions,
+      options?: PublishOptions,
     ): Promise<PublishResult>;
     publishSequence(
       request: PublishSequenceRequest,
@@ -475,6 +505,23 @@ function unsupported(operation: string, backend: string): never {
     backend,
     message: `${backend} does not implement ${operation}`,
   });
+}
+
+/** A sequence item after `publishSequence` derives its non-blank per-item idempotency key. */
+type KeyedPublishRequest = PublishRequest & { readonly idempotencyKey: string };
+
+/** Staged copies one target's publish attempts share, settled once with its final outcome. */
+interface AttemptStaging {
+  staged?: Extract<StagedTarget, { readonly kind: "staged" }>;
+  /** Whether any attempt reached the adapter, with the staged copies when there are any. */
+  enteredAdapter: boolean;
+}
+
+/** Whether the target names an uploaded media reference, which a backend may consume. */
+function usesMediaRef(target: PreparedPublishTarget): boolean {
+  return (target.content.media ?? []).some(
+    (item) => item.source.kind === "media-ref" || item.thumbnail?.kind === "media-ref",
+  );
 }
 
 /** `error` is the rejection when it was a SocialError, or undefined for any other thrown value. */
@@ -1109,7 +1156,7 @@ export function createSocial(
    * destination does.
    */
   async function publishDestinations(
-    item: PublishRequest,
+    item: KeyedPublishRequest,
     submitted: readonly { readonly target: PublishRequest["targets"][number] }[],
     options: PublishCallOptions | undefined,
   ): Promise<PublishResult> {
@@ -1124,7 +1171,7 @@ export function createSocial(
           {
             ...item,
             targets: [target],
-            idempotencyKey: `${item.idempotencyKey ?? ""}:${targetKey(target.account)}`,
+            idempotencyKey: `${item.idempotencyKey}:${targetKey(target.account)}`,
           },
           options,
         );
@@ -1203,10 +1250,7 @@ export function createSocial(
     return { status: publicationStatus(outcomes), publication, outcomes };
   }
 
-  /**
-   * Sends one prepared target and maps every adapter failure into its outcome. Local media
-   * is staged inside the backend's concurrency slot, so retries stage it the same way.
-   */
+  /** Sends one prepared target once; staged copies are settled with its outcome. */
   async function dispatchTarget(
     target: PreparedPublishTarget,
     executionOperation: "posts.publish" | "posts.schedule",
@@ -1214,6 +1258,36 @@ export function createSocial(
     options: PublishCallOptions | undefined,
     targetIdempotencyKey: string | undefined,
   ): Promise<DeliveryOutcome> {
+    return (
+      await dispatchAttempt(
+        target,
+        executionOperation,
+        correlationId,
+        options,
+        targetIdempotencyKey,
+      )
+    ).outcome;
+  }
+
+  /**
+   * Sends one prepared target and maps every adapter failure into its outcome. Local media
+   * is staged inside the backend's concurrency slot. With `staging`, the staged copies
+   * belong to the caller: later attempts of the same target reuse them, and the caller
+   * settles them once with the target's final outcome.
+   */
+  async function dispatchAttempt(
+    target: PreparedPublishTarget,
+    executionOperation: "posts.publish" | "posts.schedule",
+    correlationId: string,
+    options: PublishCallOptions | undefined,
+    targetIdempotencyKey: string | undefined,
+    retryDeadline?: {
+      readonly deadlineMs: number;
+      readonly baseBudget: NonNullable<PublishOptions["retryBudget"]>;
+      readonly previousOutcome?: DeliveryOutcome;
+    },
+    staging?: AttemptStaging,
+  ): Promise<{ readonly outcome: DeliveryOutcome; readonly stoppedRetry: boolean }> {
     const adapter = registry[target.account.backend];
     const posts = adapter?.posts;
 
@@ -1222,6 +1296,7 @@ export function createSocial(
 
     const observedAt = (): string => clock().toISOString();
     let enteredAdapter = false;
+    let stoppedRetry = false;
 
     const constraints = selectPublishDeclaration(
       adapter.capabilities.capabilities,
@@ -1231,25 +1306,124 @@ export function createSocial(
 
     let settle: ((outcome: DeliveryOutcome, enteredAdapter: boolean) => Promise<void>) | undefined;
 
+    let queueController: AbortController | undefined;
+    let queueTimer: ReturnType<typeof setTimeout> | undefined;
+    let expiredBeforeDispatch = false;
+
+    const expiredOutcome = (): DeliveryOutcome =>
+      retryDeadline?.previousOutcome ?? {
+        state: "not-submitted",
+        targetIndex: target.targetIndex,
+        account: target.account,
+        observedAt: observedAt(),
+        reason: "before-submission",
+      };
+
+    const onCallerAbort = (): void => {
+      queueController?.abort();
+    };
+
+    const scheduleQueueDeadline = (remainingMs: number): void => {
+      const slice = Math.min(remainingMs, MAX_TIMEOUT_MS);
+
+      queueTimer = setTimeout(() => {
+        if (retryDeadline === undefined || queueController?.signal.aborted) return;
+
+        const nextRemainingMs = Math.min(
+          remainingMs - slice,
+          retryDeadline.deadlineMs - clock().getTime(),
+        );
+
+        if (nextRemainingMs <= 0) {
+          expiredBeforeDispatch = true;
+          queueController?.abort();
+
+          return;
+        }
+
+        scheduleQueueDeadline(nextRemainingMs);
+      }, slice);
+    };
+
+    if (retryDeadline !== undefined) {
+      if (options?.signal?.aborted) {
+        if (retryDeadline.previousOutcome !== undefined)
+          return { outcome: retryDeadline.previousOutcome, stoppedRetry: true };
+
+        return {
+          outcome: {
+            state: "cancelled",
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: observedAt(),
+            reason: "before-submission",
+          },
+          stoppedRetry: true,
+        };
+      }
+
+      const remainingBeforeQueueMs = retryDeadline.deadlineMs - clock().getTime();
+
+      if (remainingBeforeQueueMs <= 0) return { outcome: expiredOutcome(), stoppedRetry: true };
+
+      queueController = new AbortController();
+      options?.signal?.addEventListener("abort", onCallerAbort, { once: true });
+      scheduleQueueDeadline(remainingBeforeQueueMs);
+    }
+
+    const dispatchSignal = queueController?.signal ?? options?.signal;
+
     const outcome = await (async (): Promise<DeliveryOutcome> => {
       try {
         const candidate = await dispatch(
           target.account.backend,
-          options?.signal,
+          dispatchSignal,
           executionOperation,
           async () => {
+            if (queueTimer !== undefined) {
+              clearTimeout(queueTimer);
+              queueTimer = undefined;
+            }
+
+            let attemptOptions = options;
+
+            if (retryDeadline !== undefined) {
+              const remainingInsideSlotMs = retryDeadline.deadlineMs - clock().getTime();
+
+              if (remainingInsideSlotMs <= 0) {
+                expiredBeforeDispatch = true;
+                stoppedRetry = true;
+
+                return expiredOutcome();
+              }
+
+              attemptOptions = {
+                ...options,
+                retryBudget: {
+                  ...retryDeadline.baseBudget,
+                  maxElapsedMs: remainingInsideSlotMs,
+                },
+              };
+            }
+
             let dispatched = target;
 
             let context = makeContext(
               target.account.backend,
               correlationId,
-              options,
+              attemptOptions,
               targetIdempotencyKey,
             );
 
             // Staging runs here: after authorization and the replay check, inside
-            // the backend's concurrency slot, and under the caller's signal.
-            if (mediaStaging !== undefined) {
+            // the backend's concurrency slot, and under the caller's signal. A retry
+            // reuses the copies an earlier attempt staged instead of uploading again.
+            const carried = staging?.staged;
+
+            if (carried !== undefined) {
+              dispatched = carried.target;
+              context = { ...carried.context, retryBudget: context.retryBudget };
+            } else if (mediaStaging !== undefined) {
               const staged = await mediaStaging.stage({
                 target,
                 constraints,
@@ -1259,21 +1433,43 @@ export function createSocial(
                 revalidate: (candidate) => preparedIssues(posts, candidate),
               });
 
-              if (staged.kind !== "unchanged") settle = staged.settle;
+              if (staged.kind === "stopped") {
+                settle = staged.settle;
 
-              if (staged.kind === "stopped") return staged.outcome;
+                // A retry whose staging was cancelled or ran out of the shared deadline
+                // keeps the earlier result. Other staging failures, such as an invalid
+                // staged URL, are this target's result and carry their issues.
+                if (
+                  retryDeadline?.previousOutcome !== undefined &&
+                  (staged.outcome.state === "cancelled" ||
+                    retryDeadline.deadlineMs - clock().getTime() <= 0)
+                ) {
+                  stoppedRetry = true;
+
+                  return retryDeadline.previousOutcome;
+                }
+
+                return staged.outcome;
+              }
 
               if (staged.kind === "staged") {
                 dispatched = staged.target;
                 context = staged.context;
+
+                if (staging === undefined) settle = staged.settle;
+                else staging.staged = staged;
               }
             }
 
             enteredAdapter = true;
 
+            if (staging !== undefined) staging.enteredAdapter = true;
+
             return posts.publishTarget(dispatched, context);
           },
         );
+
+        if (!enteredAdapter) return candidate;
 
         return assertValidOutcome(candidate, target)
           ? candidate
@@ -1286,6 +1482,25 @@ export function createSocial(
               diagnostic: "Adapter returned an outcome for a different target",
             };
       } catch (error) {
+        if (
+          retryDeadline !== undefined &&
+          !enteredAdapter &&
+          error instanceof SocialError &&
+          error.code === "cancelled"
+        ) {
+          if (expiredBeforeDispatch) {
+            stoppedRetry = true;
+
+            return expiredOutcome();
+          }
+
+          if (options?.signal?.aborted && retryDeadline.previousOutcome !== undefined) {
+            stoppedRetry = true;
+
+            return retryDeadline.previousOutcome;
+          }
+        }
+
         return !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
           ? {
               state: "cancelled",
@@ -1307,20 +1522,43 @@ export function createSocial(
                 target,
                 observedAt(),
               );
+      } finally {
+        if (queueTimer !== undefined) clearTimeout(queueTimer);
+
+        if (queueController !== undefined)
+          options?.signal?.removeEventListener("abort", onCallerAbort);
       }
     })();
 
     if (settle !== undefined) await settle(outcome, enteredAdapter);
 
-    return outcome;
+    return { outcome, stoppedRetry };
   }
 
   async function publish(
     request: PublishRequest,
-    options?: PublishCallOptions,
+    options?: PublishOptions,
   ): Promise<PublishResult> {
     const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
     const executionOperation = executionOperationFor(request);
+    const retry = publishRetryPolicy(options?.retry, executionOperation);
+
+    const baseBudget =
+      options?.retry === undefined
+        ? undefined
+        : (options.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 });
+
+    if (
+      baseBudget !== undefined &&
+      (!Number.isFinite(baseBudget.maxElapsedMs) || baseBudget.maxElapsedMs <= 0)
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: executionOperation,
+        message: "retryBudget.maxElapsedMs must be a finite positive number.",
+        correlationId,
+      });
+
     await authorizeRequest(request, executionOperation, options, correlationId);
     const plan = await planPublication(request, options, correlationId, "execute");
     let claim: IdempotencyClaim | undefined;
@@ -1345,9 +1583,10 @@ export function createSocial(
 
     const warnings: PublishWarning[] = [];
 
+    // Start every target at once; `dispatch` applies each backend's concurrency limit.
     const outcomes = await mapConcurrent(
       plan.targets.length,
-      Math.max(1, plan.targets.length),
+      plan.targets.length,
       async (index) => {
         const target = plan.targets[index];
 
@@ -1370,13 +1609,64 @@ export function createSocial(
                 payloadFingerprint: plan.payloadFingerprint,
               });
 
-        const outcome = await dispatchTarget(
+        const deadlineMs =
+          baseBudget === undefined ? undefined : clock().getTime() + baseBudget.maxElapsedMs;
+
+        const staging: AttemptStaging = { enteredAdapter: false };
+
+        let { outcome } = await dispatchAttempt(
           target,
           executionOperation,
           correlationId,
           options,
           targetIdempotencyKey,
+          baseBudget !== undefined && deadlineMs !== undefined
+            ? { deadlineMs, baseBudget }
+            : undefined,
+          staging,
         );
+
+        for (let attempt = 1; attempt < retry.maxAttempts; attempt++) {
+          if (baseBudget === undefined || deadlineMs === undefined) break;
+
+          // Uploaded media references are single-submission assets: a managed backend
+          // may consume them before its create request fails. Keep the first adapter
+          // result rather than replaying a target that can no longer resolve its media.
+          if (staging.enteredAdapter && usesMediaRef(target)) break;
+
+          const delay = publishRetryDelay(outcome, retry.capacityDelayMs);
+
+          if (delay === undefined || delay > retry.maxDelayMs) break;
+
+          const remainingBeforeWaitMs = deadlineMs - clock().getTime();
+
+          if (remainingBeforeWaitMs <= 0 || delay > remainingBeforeWaitMs) break;
+
+          if (!(await waitToRetry(delay, options?.signal))) break;
+
+          const remainingAfterWaitMs = deadlineMs - clock().getTime();
+
+          if (remainingAfterWaitMs <= 0) break;
+
+          const previousOutcome = outcome;
+
+          const nextAttempt = await dispatchAttempt(
+            target,
+            executionOperation,
+            correlationId,
+            options,
+            targetIdempotencyKey,
+            { deadlineMs, baseBudget, previousOutcome },
+            staging,
+          );
+
+          outcome = nextAttempt.outcome;
+
+          if (nextAttempt.stoppedRetry) break;
+        }
+
+        if (staging.staged !== undefined)
+          await staging.staged.settle(outcome, staging.enteredAdapter);
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
           try {
@@ -1474,7 +1764,9 @@ export function createSocial(
           ? entries[0]
           : entries.find(([key]) => key === callOptions.backend);
 
-      if (first === undefined || first[1].accounts === undefined)
+      const accounts = first?.[1].accounts;
+
+      if (first === undefined || accounts === undefined)
         unsupported("accounts.read", first?.[0] ?? "unknown");
       requireCapability(first[1], "accounts.read", "*", first[0]);
 
@@ -1486,7 +1778,7 @@ export function createSocial(
       ]);
 
       const received = await dispatch(first[0], callOptions?.signal, "accounts.read", () =>
-        first[1].accounts!.list(
+        accounts.list(
           decodePageOptions(cursorScope, callOptions),
           makeContext(first[0], correlationId, callOptions),
         ),
@@ -1531,10 +1823,12 @@ export function createSocial(
       const adapter = selected(ref, "accounts.get");
       requireCapability(adapter, "accounts.read", ref.platform, ref.backend);
 
-      if (adapter.accounts === undefined) unsupported("accounts.read", ref.backend);
+      const accounts = adapter.accounts;
+
+      if (accounts === undefined) unsupported("accounts.read", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "accounts.read", () =>
-        adapter.accounts!.get(ref, makeContext(ref.backend, correlationId, callOptions)),
+        accounts.get(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
   };
@@ -1562,14 +1856,12 @@ export function createSocial(
       const adapter = selected(account, "profiles.read");
       requireCapability(adapter, "profiles.read", account.platform, account.backend);
 
-      if (adapter.graph?.getProfile === undefined) unsupported("profiles.read", account.backend);
+      const graph = adapter.graph;
+
+      if (!implementsMethod(graph, "getProfile")) unsupported("profiles.read", account.backend);
 
       return dispatch(account.backend, callOptions?.signal, "profiles.read", () =>
-        adapter.graph!.getProfile!(
-          account,
-          input,
-          makeContext(account.backend, correlationId, callOptions),
-        ),
+        graph.getProfile(account, input, makeContext(account.backend, correlationId, callOptions)),
       );
     },
     async listRelationships(
@@ -1600,8 +1892,9 @@ export function createSocial(
       const adapter = selected(account, "graph.read");
       requireCapability(adapter, "graph.read", account.platform, account.backend);
 
-      if (adapter.graph?.listRelationships === undefined)
-        unsupported("graph.read", account.backend);
+      const graph = adapter.graph;
+
+      if (!implementsMethod(graph, "listRelationships")) unsupported("graph.read", account.backend);
 
       const scope = JSON.stringify([
         account.backend,
@@ -1614,7 +1907,7 @@ export function createSocial(
       ]);
 
       const page = await dispatch(account.backend, callOptions?.signal, "graph.read", () =>
-        adapter.graph!.listRelationships!(
+        graph.listRelationships(
           account,
           {
             ...input,
@@ -1753,7 +2046,9 @@ export function createSocial(
       const adapter = selected(account, "posts.list");
       requireCapability(adapter, "posts.list", account.platform, account.backend);
 
-      if (!adapter.posts?.list) unsupported("posts.list", account.backend);
+      const posts = adapter.posts;
+
+      if (!implementsMethod(posts, "list")) unsupported("posts.list", account.backend);
 
       const scope = JSON.stringify([
         account.backend,
@@ -1767,11 +2062,7 @@ export function createSocial(
       const input = decodePageOptions(scope, callOptions);
 
       const page = await dispatch(account.backend, callOptions?.signal, "posts.list", () =>
-        adapter.posts!.list!(
-          account,
-          input,
-          makeContext(account.backend, correlationId, callOptions),
-        ),
+        posts.list(account, input, makeContext(account.backend, correlationId, callOptions)),
       );
 
       return encodePage(scope, page);
@@ -1796,10 +2087,13 @@ export function createSocial(
         callOptions,
       );
 
-      if (!adapter.posts?.cancelScheduled) unsupported("posts.cancelScheduled", ref.backend);
+      const posts = adapter.posts;
+
+      if (!implementsMethod(posts, "cancelScheduled"))
+        unsupported("posts.cancelScheduled", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "posts.cancelScheduled", () =>
-        adapter.posts!.cancelScheduled!(ref, context),
+        posts.cancelScheduled(ref, context),
       );
     },
     async deleteBackendRecord(
@@ -1813,11 +2107,13 @@ export function createSocial(
         callOptions,
       );
 
-      if (!adapter.posts?.deleteBackendRecord)
+      const posts = adapter.posts;
+
+      if (!implementsMethod(posts, "deleteBackendRecord"))
         unsupported("posts.deleteBackendRecord", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "posts.deleteBackendRecord", () =>
-        adapter.posts!.deleteBackendRecord!(ref, context),
+        posts.deleteBackendRecord(ref, context),
       );
     },
     async removeFromPlatform(
@@ -1831,10 +2127,13 @@ export function createSocial(
         callOptions,
       );
 
-      if (!adapter.posts?.removeFromPlatform) unsupported("posts.removeFromPlatform", ref.backend);
+      const posts = adapter.posts;
+
+      if (!implementsMethod(posts, "removeFromPlatform"))
+        unsupported("posts.removeFromPlatform", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "posts.removeFromPlatform", () =>
-        adapter.posts!.removeFromPlatform!(ref, context),
+        posts.removeFromPlatform(ref, context),
       );
     },
     prepare,
@@ -1867,10 +2166,10 @@ export function createSocial(
           message: "A nonempty idempotencyKey is required",
         });
 
-      const prepared: PublishRequest[] = [];
+      const prepared: KeyedPublishRequest[] = [];
 
       for (const [index, item] of request.items.entries()) {
-        const publishRequest: PublishRequest = {
+        const publishRequest: KeyedPublishRequest = {
           targets: item.targets,
           content: item.content,
           idempotencyKey: `${request.idempotencyKey}:${index}`,
@@ -2059,10 +2358,12 @@ export function createSocial(
       const adapter = selected(ref, "posts.get");
       requireCapability(adapter, "posts.get", ref.platform, ref.backend);
 
-      if (adapter.posts?.get === undefined) unsupported("posts.get", ref.backend);
+      const posts = adapter.posts;
+
+      if (!implementsMethod(posts, "get")) unsupported("posts.get", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "posts.get", () =>
-        adapter.posts!.get!(ref, makeContext(ref.backend, correlationId, callOptions)),
+        posts.get(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
     async getDelivery(
@@ -2089,10 +2390,12 @@ export function createSocial(
       const adapter = selected(ref, "posts.getDelivery");
       requireCapability(adapter, "posts.getDelivery", ref.platform, ref.backend);
 
-      if (adapter.posts?.getDelivery === undefined) unsupported("posts.getDelivery", ref.backend);
+      const posts = adapter.posts;
+
+      if (!implementsMethod(posts, "getDelivery")) unsupported("posts.getDelivery", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "posts.getDelivery", () =>
-        adapter.posts!.getDelivery!(ref, makeContext(ref.backend, correlationId, callOptions)),
+        posts.getDelivery(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
   };
@@ -2189,14 +2492,12 @@ export function createSocial(
       const adapter = selected(account, "media.upload");
       requireCapability(adapter, "media.upload", account.platform, account.backend);
 
-      if (adapter.media === undefined) unsupported("media.upload", account.backend);
+      const media = adapter.media;
+
+      if (media === undefined) unsupported("media.upload", account.backend);
 
       return dispatch(account.backend, callOptions?.signal, "media.upload", () =>
-        adapter.media!.upload(
-          input,
-          account,
-          makeContext(account.backend, correlationId, callOptions),
-        ),
+        media.upload(input, account, makeContext(account.backend, correlationId, callOptions)),
       );
     },
   };
@@ -2218,14 +2519,14 @@ export function createSocial(
       const adapter = selected(ref, "analytics.getAccountMetrics");
       requireCapability(adapter, "analytics.account.read", ref.platform, ref.backend);
 
-      if (!adapter.analytics?.getAccountMetrics) unsupported("analytics.account.read", ref.backend);
+      const analytics = adapter.analytics;
+
+      if (!implementsMethod(analytics, "getAccountMetrics"))
+        unsupported("analytics.account.read", ref.backend);
 
       return normalizeMetrics(
         await dispatch(ref.backend, callOptions?.signal, "analytics.account.read", () =>
-          adapter.analytics!.getAccountMetrics!(
-            ref,
-            makeContext(ref.backend, correlationId, callOptions),
-          ),
+          analytics.getAccountMetrics(ref, makeContext(ref.backend, correlationId, callOptions)),
         ),
       );
     },
@@ -2247,14 +2548,13 @@ export function createSocial(
       const adapter = selected(ref, "analytics.getPostMetrics");
       requireCapability(adapter, "analytics.read", ref.platform, ref.backend);
 
-      if (adapter.analytics === undefined) unsupported("analytics.read", ref.backend);
+      const analytics = adapter.analytics;
+
+      if (analytics === undefined) unsupported("analytics.read", ref.backend);
 
       return normalizeMetrics(
         await dispatch(ref.backend, callOptions?.signal, "analytics.read", () =>
-          adapter.analytics!.getPostMetrics(
-            ref,
-            makeContext(ref.backend, correlationId, callOptions),
-          ),
+          analytics.getPostMetrics(ref, makeContext(ref.backend, correlationId, callOptions)),
         ),
       );
     },
@@ -2289,14 +2589,13 @@ export function createSocial(
       const adapter = selected(ref, "analytics.getReport");
       requireCapability(adapter, "analytics.report.read", ref.platform, ref.backend);
 
-      if (!adapter.analytics?.getReport) unsupported("analytics.report.read", ref.backend);
+      const analytics = adapter.analytics;
+
+      if (!implementsMethod(analytics, "getReport"))
+        unsupported("analytics.report.read", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "analytics.report.read", () =>
-        adapter.analytics!.getReport!(
-          ref,
-          query,
-          makeContext(ref.backend, correlationId, callOptions),
-        ),
+        analytics.getReport(ref, query, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
   };
@@ -2330,7 +2629,9 @@ export function createSocial(
       const adapter = selected(ref, "comments.list");
       requireCapability(adapter, "comments.read", ref.platform, ref.backend);
 
-      if (adapter.comments === undefined) unsupported("comments.read", ref.backend);
+      const comments = adapter.comments;
+
+      if (comments === undefined) unsupported("comments.read", ref.backend);
 
       const cursorScope = inboxSourceScope(
         { kind: "comments", post: ref },
@@ -2339,7 +2640,7 @@ export function createSocial(
       );
 
       const received = await dispatch(ref.backend, callOptions?.signal, "comments.read", () =>
-        adapter.comments!.list(
+        comments.list(
           ref,
           decodePageOptions(cursorScope, callOptions),
           makeContext(ref.backend, correlationId, callOptions),
@@ -2376,10 +2677,12 @@ export function createSocial(
       const adapter = selected(ref, "comments.reply");
       requireCapability(adapter, "comments.write", ref.platform, ref.backend);
 
-      if (adapter.comments === undefined) unsupported("comments.write", ref.backend);
+      const comments = adapter.comments;
+
+      if (comments === undefined) unsupported("comments.write", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "comments.write", () =>
-        adapter.comments!.reply(ref, content, makeContext(ref.backend, correlationId, callOptions)),
+        comments.reply(ref, content, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
   };
@@ -2404,7 +2707,9 @@ export function createSocial(
       const adapter = selected(account, "messages.listConversations");
       requireCapability(adapter, "messages.read", account.platform, account.backend);
 
-      if (adapter.messages === undefined) unsupported("messages.read", account.backend);
+      const messages = adapter.messages;
+
+      if (messages === undefined) unsupported("messages.read", account.backend);
 
       const cursorScope = inboxSourceScope(
         { kind: "conversations", account },
@@ -2413,7 +2718,7 @@ export function createSocial(
       );
 
       const received = await dispatch(account.backend, callOptions?.signal, "messages.read", () =>
-        adapter.messages!.listConversations(
+        messages.listConversations(
           account,
           decodePageOptions(cursorScope, callOptions),
           makeContext(account.backend, correlationId, callOptions),
@@ -2460,7 +2765,9 @@ export function createSocial(
       const adapter = selected(ref, "messages.listMessages");
       requireCapability(adapter, "messages.read", ref.platform, ref.backend);
 
-      if (adapter.messages === undefined) unsupported("messages.read", ref.backend);
+      const messages = adapter.messages;
+
+      if (messages === undefined) unsupported("messages.read", ref.backend);
 
       const cursorScope = JSON.stringify([
         ref.backend,
@@ -2473,7 +2780,7 @@ export function createSocial(
       ]);
 
       const received = await dispatch(ref.backend, callOptions?.signal, "messages.read", () =>
-        adapter.messages!.listMessages(
+        messages.listMessages(
           ref,
           decodePageOptions(cursorScope, callOptions),
           makeContext(ref.backend, correlationId, callOptions),
@@ -2510,10 +2817,12 @@ export function createSocial(
       const adapter = selected(ref, "messages.send");
       requireCapability(adapter, "messages.write", ref.platform, ref.backend);
 
-      if (adapter.messages === undefined) unsupported("messages.write", ref.backend);
+      const messages = adapter.messages;
+
+      if (messages === undefined) unsupported("messages.write", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "messages.write", () =>
-        adapter.messages!.send(ref, content, makeContext(ref.backend, correlationId, callOptions)),
+        messages.send(ref, content, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
   };
@@ -2554,7 +2863,9 @@ export function createSocial(
       const adapter = selected(account, "notifications.list");
       requireCapability(adapter, "notifications.read", account.platform, account.backend);
 
-      if (adapter.notifications === undefined) unsupported("notifications.read", account.backend);
+      const notifications = adapter.notifications;
+
+      if (notifications === undefined) unsupported("notifications.read", account.backend);
 
       const cursorScope = JSON.stringify([
         account.backend,
@@ -2570,7 +2881,7 @@ export function createSocial(
         callOptions?.signal,
         "notifications.read",
         () =>
-          adapter.notifications!.list(
+          notifications.list(
             account,
             decodePageOptions(cursorScope, callOptions),
             makeContext(account.backend, correlationId, callOptions),
@@ -2606,10 +2917,12 @@ export function createSocial(
       const adapter = selected(account, "notifications.markSeen");
       requireCapability(adapter, "notifications.seen", account.platform, account.backend);
 
-      if (adapter.notifications === undefined) unsupported("notifications.seen", account.backend);
+      const notifications = adapter.notifications;
+
+      if (notifications === undefined) unsupported("notifications.seen", account.backend);
 
       return dispatch(account.backend, callOptions?.signal, "notifications.seen", () =>
-        adapter.notifications!.markSeen(
+        notifications.markSeen(
           account,
           input,
           makeContext(account.backend, correlationId, callOptions),

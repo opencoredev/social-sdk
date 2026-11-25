@@ -95,3 +95,59 @@ test("managed uploads time out uncooperative fetch without reopening source", as
   );
   assert.equal(opens, 1);
 });
+
+test("budget exhaustion after a dispatched write says to reconcile first", async () => {
+  const { requestBudget } = await import("../src/transport/budget.js");
+
+  const readOnly = {
+    backendInstance: "b",
+    correlationId: "read",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 100 },
+  };
+
+  assert.equal(requestBudget(readOnly, { write: false }, 1000), 100);
+  assert.throws(() => requestBudget(readOnly, { write: false }, 1100), {
+    code: "timeout",
+    retryDisposition: { kind: "never" },
+  });
+
+  const afterWrite = { ...readOnly, correlationId: "write" };
+
+  assert.equal(requestBudget(afterWrite, { write: true }, 1000), 100);
+  assert.throws(() => requestBudget(afterWrite, { write: false }, 1100), {
+    code: "timeout",
+    retryDisposition: { kind: "reconcile-first" },
+  });
+  assert.throws(() => remainingBudget(afterWrite, 1100), {
+    retryDisposition: { kind: "reconcile-first" },
+  });
+});
+
+test("a managed write then an over-budget read reports reconcile-first", async () => {
+  const { managedHttp } = await import("../src/cloud/common.js");
+  let calls = 0;
+
+  const request = managedHttp("https://api.example.test", {
+    apiKey: "fixture",
+    fetch: async () => {
+      calls++;
+
+      return Response.json({ id: "post_1" });
+    },
+  });
+
+  const context = {
+    backendInstance: "b",
+    correlationId: "managed-write",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 20 },
+  };
+
+  await request("/v1/posts", context, { text: "hello" });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  await assert.rejects(request("/v1/posts/post_1", context), {
+    code: "timeout",
+    retryDisposition: { kind: "reconcile-first" },
+  });
+  assert.equal(calls, 1);
+});

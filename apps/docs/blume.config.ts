@@ -1,7 +1,7 @@
 import { defineConfig } from "blume";
 import { script } from "blume/analytics";
 
-import { posthogScript } from "./analytics";
+import { databuddyScript, posthogScript } from "./analytics";
 import { platformTabsMarkdown } from "./components/platforms.ts";
 import { blogFeeds } from "./pages/_blog/feeds.ts";
 
@@ -268,8 +268,11 @@ export default defineConfig({
     },
   },
   // Loaded as a custom script instead of the `posthog()` adapter so the init
-  // options (exceptions, replay masking, URL stripping) are ours to set.
-  analytics: [script({ content: posthogScript })],
+  // options (exceptions, replay off, URL stripping) are ours to set.
+  // Databuddy's loader comes after it. Blume's `databuddy()` adapter always loads
+  // from Databuddy's CDN, and these scripts go through our own domain, so
+  // analytics.ts holds a custom loader instead.
+  analytics: [script({ content: posthogScript }), script({ content: databuddyScript })],
   deployment: {
     site: "https://social-sdk.dev",
   },

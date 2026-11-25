@@ -1,7 +1,45 @@
 ---
 title: Choose an integration
 description: Decide between direct integrations, managed backends, and an explicit mixed-backend setup for your application.
+seo:
+  title: Self-hosted social posting or a managed API
+  description: Post to X, Bluesky, Threads, Instagram, LinkedIn, TikTok and YouTube from your own server with no SaaS in between, or pick a managed backend.
 ---
+
+## Post from your own server without a SaaS
+
+To post to social networks from your app without a hosted service in between,
+use the direct route. Social SDK is an MIT-licensed TypeScript library that
+runs inside your own Node.js 22.12+ or Bun server and calls each platform's API
+directly: X, Bluesky, Threads, Instagram, LinkedIn, TikTok, and YouTube. A
+direct integration needs no Social SDK account, and the library sends no
+telemetry.
+
+What you run yourself:
+
+- **Your platform apps.** Every platform except Bluesky needs a developer app
+  you register, with its scopes, app review, and rate limits, and you pay any
+  API charges the platform sets. Bluesky works with an app password or with
+  OAuth client metadata you publish.
+- **Your credential storage.** `ConnectionManager` from
+  `@opencoredev/social-sdk/server` runs the OAuth flow with each platform's
+  OAuth factory. You provide a `credentialSink` that encrypts token sets in
+  your own database, and for Bluesky a `sessionSink` that stores the whole
+  session, including its DPoP key. See [authentication](/authentication).
+- **Your scheduling.** The SDK starts no background work. Call
+  `social.posts.publish` from a job runner you already use.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+If you'd rather run a scheduling app with its own connection screens, Postiz is
+open source and can be self-hosted, and the [Postiz backend](/backends/postiz)
+connects Social SDK to your instance. A self-hosted Postiz still needs your own
+developer app for most networks. That adapter is on `main` and is not in the
+published 0.5.0 package yet.
+
+## Compare the routes
 
 The integration route owns authentication, limits, lifecycle mapping, and the network request. The platform remains the destination where an account or post exists.
 

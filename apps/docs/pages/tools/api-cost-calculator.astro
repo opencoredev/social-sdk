@@ -1,0 +1,17 @@
+---
+// Social media API cost calculator. The markup lives in _tools/api-cost-calculator.ts
+// and the live controls in _tools/calculator.client.ts, which Astro bundles into the
+// script rendered just before </body>.
+import { withAnalytics } from "../../analytics";
+import { withFonts } from "../_home/fonts";
+import { renderCostCalculator } from "../_tools/api-cost-calculator";
+import { splitAtBodyEnd } from "../_tools/tools";
+
+const [page, end] = splitAtBodyEnd(withAnalytics(withFonts(renderCostCalculator())));
+---
+
+<Fragment set:html={page} />
+<script>
+  import "../_tools/calculator.client";
+</script>
+<Fragment set:html={end} />

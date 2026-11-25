@@ -2,7 +2,8 @@ import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { resolve, basename } from "node:path";
 
 import { fontLoader } from "../apps/docs/pages/_home/font-loader.ts";
-import { addLastmod, type PageSource } from "../apps/docs/sitemap-dates.ts";
+import { inlineSidebarFragments } from "../apps/docs/sidebar-fragments.ts";
+import { addLastmod, lastChange, type GitDates } from "../apps/docs/sitemap-dates.ts";
 
 const directory = resolve(import.meta.dir, "../apps/docs/dist");
 
@@ -86,27 +87,31 @@ if (!sitemap.includes("</urlset>")) throw new Error("sitemap.xml has no closing 
 // says what each of those renders from; git supplies the last change.
 const pagesRoot = resolve(import.meta.dir, "../apps/docs/pages");
 
-function git(args: string[]): string {
-  const result = Bun.spawnSync(["git", "log", "-1", "--format=%cI", ...args], { cwd: pagesRoot });
-  const date = result.stdout.toString().trim();
+type GitResult = { ok: boolean; stdout: string };
 
-  if (result.exitCode !== 0 || date === "")
-    throw new Error(`git has no commit date for ${args.join(" ")}.`);
+function gitOutput(args: readonly string[]): GitResult {
+  const result = Bun.spawnSync(["git", ...args], { cwd: pagesRoot });
 
-  return date;
+  return { ok: result.exitCode === 0, stdout: result.stdout.toString().trim() };
 }
 
-/** The latest commit that touched any of the source's files or line ranges. */
-function lastChange(source: PageSource): string {
-  const dates = [
-    ...(source.files.length > 0 ? [git(["--", ...source.files])] : []),
-    ...source.ranges.map((range) =>
-      git(["-s", "-L", `/${range.from}/,/${range.to}/:${range.file}`]),
-    ),
-  ];
+const buildTime = new Date().toISOString();
 
-  return dates.reduce((latest, date) => (Date.parse(date) > Date.parse(latest) ? date : latest));
-}
+const gitDates: GitDates = {
+  logDate: (args) => {
+    const result = gitOutput(["log", "-1", "--format=%cI", ...args]);
+
+    return result.ok && result.stdout !== "" ? result.stdout : undefined;
+  },
+  hasUncommittedChanges: (paths) => {
+    const result = gitOutput(["status", "--porcelain", "--", ...paths]);
+
+    if (!result.ok) throw new Error(`git status failed for ${paths.join(" ")}.`);
+
+    return result.stdout !== "";
+  },
+  now: () => buildTime,
+};
 
 await writeFile(
   sitemapPath,
@@ -114,7 +119,11 @@ await writeFile(
     [
       `<urlset${attributes}>`,
       ...[...siteUrls, ...blogUrls].map((entry) =>
-        addLastmod({ entry, origin: "https://social-sdk.dev", dateOf: lastChange }),
+        addLastmod({
+          entry,
+          origin: "https://social-sdk.dev",
+          dateOf: (source) => lastChange(source, gitDates),
+        }),
       ),
       "</urlset>",
     ].join("\n"),
@@ -179,6 +188,9 @@ const site = `
 - [Bluesky API guide](https://social-sdk.dev/guides/bluesky-api): Hosts, app passwords and OAuth, posting with createRecord, link facets, images, video, and rate limits.
 - [Threads API guide](https://social-sdk.dev/guides/threads-api): Access and App Review, tokens, the container and publish flow, and daily publishing limits.
 - [X API pricing guide](https://social-sdk.dev/guides/x-api-pricing): Pay-per-use credits, what a post and a read cost, free credits for new accounts, spending limits, and posting rate limits.
+- [Developer tools](https://social-sdk.dev/tools): Free in-browser tools for planning social media API work.
+- [Social media API cost calculator](https://social-sdk.dev/tools/api-cost-calculator): Estimates a month of posting through direct platform APIs, with X's pay-per-use credits, against a per-profile unified API, using rates the reader enters.
+- [Social media post limits and preflight checker](https://social-sdk.dev/tools/platform-limits): Checks a post's text, images, and video against X, Bluesky, Threads, Instagram, LinkedIn, TikTok, YouTube, and Facebook limits, with each platform's access and review rules.
 `;
 
 for (const name of ["llms.txt", "index.md"]) {
@@ -198,6 +210,39 @@ for (const name of ["llms.txt", "index.md"]) {
   await writeFile(path, `${index.slice(0, end)}${guidance}${index.slice(end).trimEnd()}\n${site}`);
   console.log(`Added agent guidance and site pages to ${name}.`);
 }
+
+// Blume defers each collapsed sidebar group's links to a fragment the sidebar
+// script fetches on first open, so crawlers that don't run JavaScript miss them.
+// apps/docs/sidebar-fragments.ts copies the fragments into every page; the
+// groups stay closed, and opening one no longer needs a request.
+const fragmentRoot = `${directory}/blume-nav/`;
+
+function readFragment(src: string): string | undefined {
+  if (!/^\/blume-nav\/[\w./-]+$/.test(src) || src.includes(".."))
+    throw new Error(`Unexpected sidebar fragment URL ${src}.`);
+
+  return texts.get(`${directory}${src}/index.html`);
+}
+
+let inlinedPages = 0;
+
+let inlinedSections = 0;
+
+for (const path of entries.filter(
+  (path) => path.endsWith(".html") && !path.startsWith(fragmentRoot),
+)) {
+  const html = await readFile(path, "utf8");
+
+  const { html: inlined, inlined: count } = inlineSidebarFragments(html, readFragment);
+
+  if (count === 0) continue;
+
+  await writeFile(path, inlined);
+  inlinedPages++;
+  inlinedSections += count;
+}
+
+console.log(`Inlined ${inlinedSections} sidebar section(s) into ${inlinedPages} docs page(s).`);
 
 // Blume preloads Geist and uses it from the first paint, so on a slow phone the
 // fonts hold back the first paint. Docs pages start in metric-matched

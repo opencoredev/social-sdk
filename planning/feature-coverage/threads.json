@@ -3,7 +3,8 @@
     "id": "threads.publish.text",
     "provider": "threads",
     "area": "publish",
-    "title": "Text post (media_type=TEXT, 500 chars, emoji counted as UTF-8 bytes)",
+    "title": "Text post (media_type=TEXT, 500 chars; adapter counts graphemes, issue #174)",
+    "note": "Grapheme counting follows reporter-supplied live evidence in issue #174 (2026-09-01: 400 x U+1F642 and 400 x U+00E9 published). Not live-verified by the project; multi-code-point sequences counting as one are untested live.",
     "access": "approval",
     "scope": "core",
     "source": {
