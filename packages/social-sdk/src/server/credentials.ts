@@ -561,6 +561,9 @@ export class CredentialManager {
               error instanceof SocialError
                 ? error.retryDisposition
                 : { kind: "after-delay", delayMs: 1_000 },
+            ...definedFields({
+              upstreamStatus: error instanceof SocialError ? error.upstreamStatus : undefined,
+            }),
           });
         }
 
