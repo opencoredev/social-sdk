@@ -150,7 +150,7 @@ export const posthogScript = `(() => {
   // reported just before the visitor leaves, such as a click on a landing-page
   // link, is kept in sessionStorage so the next page sends it.
   const carryKey = "siteTrackQueued";
-  const queued = (() => {
+  const takeCarried = () => {
     try {
       const carried = JSON.parse(sessionStorage.getItem(carryKey) ?? "[]");
       sessionStorage.removeItem(carryKey);
@@ -158,10 +158,20 @@ export const posthogScript = `(() => {
     } catch {
       return [];
     }
-  })();
+  };
+  const queued = takeCarried();
   // The loaded SDK instance. Until it exists, window.posthog is the loader's stub.
   let client = null;
   let started = false;
+  // A page restored from the back/forward cache doesn't run this script again,
+  // so it picks up what the page the visitor came back from carried.
+  addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    for (const [name, properties] of takeCarried()) {
+      if (started) client.capture(name, properties, { send_instantly: true });
+      else queued.push([name, properties]);
+    }
+  });
   addEventListener("pagehide", () => {
     if (started || queued.length === 0) return;
     try {
