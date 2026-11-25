@@ -59,7 +59,7 @@ const conversations = await social.messages.listConversations(account, { limit: 
 Normalized messages run on two kinds of route:
 
 - The direct X adapter.
-- The direct Instagram adapter with Instagram Login and messaging permission.
+- The direct Instagram adapter with either login flavor and messaging permission; `facebook-login` needs a Unified Login system user token.
 - The managed Zernio backend for X, Bluesky, Instagram, and Facebook accounts
   connected through Zernio. Recipient permissions and reply windows still apply
   upstream.
@@ -261,16 +261,16 @@ Source: [comments.setModerationStatus](https://developers.google.com/youtube/v3/
 <PlatformTab platform="instagram">
 
 **Comments** list and reply. **Messages:** conversation and message reads, plus
-text replies with Instagram Login. **Access:** a professional account with the
+text replies with either login flavor. **Access:** a professional account with the
 matching comment-management or messaging permission.
 
 Configure `instagram({ auth: { accessToken, accountId, flavor } })`. `flavor`
 defaults to `instagram-login`; use `facebook-login` where the adapter requires
-Facebook Login. Direct messaging requires Instagram Login. Conversation reads
+Facebook Login. Direct messaging works with both flavors; `facebook-login`
+needs a Unified Login (Business Integration System User) token. Conversation reads
 include participants, and message reads include bodies, senders, recipients,
 timestamps, and attachments. `messages.send` looks up the conversation
-participants and sends only when it finds one other recipient. Facebook Login
-messaging requires the separate Messenger Platform and a Page token. Zernio
+participants and sends only when it finds one other recipient. Zernio
 also exposes Instagram messages as a managed backend.
 
 Native moderation covers hiding and deleting comments, listing replies to one
