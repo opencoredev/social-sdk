@@ -108,9 +108,9 @@ export const databuddyScript = `(() => {
         }
       };
       tag.onerror = () => {
-        // A tag that a navigation already replaced says nothing about its
-        // replacement, which may still load.
-        if (latest.get(src) !== tag) return;
+        // A tag that a navigation already replaced or removed says nothing
+        // about its replacement, which may still load.
+        if (latest.get(src) !== tag || !tag.isConnected) return;
         settled.add(src);
         if (src !== ${JSON.stringify(DATABUDDY_TRACKER_SRC)}) return;
         // The tracker won't load on this page (a blocker, a 404), so queued
@@ -147,8 +147,24 @@ export const databuddyScript = `(() => {
     }
     return null;
   };
-  const installsSdk =
-    /\\b(?:npm|pnpm|yarn|bun|nub|aube)\\s+(?:i|install|add)\\b[\\s\\S]*?@opencoredev\\/social-sdk(?![\\w.-])/;
+  // An install command whose own arguments include the package itself, not a
+  // subpath and not a mention in a comment or a later command.
+  const installsSdk = (code) =>
+    code
+      .replace(/\\\\\\n/g, " ")
+      .split("\\n")
+      .some((line) => {
+        const words = line.split("#")[0].trim().split(/\\s+/);
+        const at = words.findIndex(
+          (word, index) =>
+            /^(?:npm|pnpm|yarn|bun|nub|aube)$/.test(word) && /^(?:i|install|add)$/.test(words[index + 1] ?? ""),
+        );
+        if (at === -1) return false;
+        const end = words.findIndex((word, index) => index > at && /^(?:&&|\\|\\||;|\\|)$/.test(word));
+        return words
+          .slice(at + 2, end === -1 ? undefined : end)
+          .some((word) => /^@opencoredev\\/social-sdk(?:@[^\\s/]+)?$/.test(word));
+      });
   // Blume adds a copy button inside each code block, or to the tab bar of a
   // tabbed block, where it copies the visible tab's code.
   const copiedBlock = (button) => {
@@ -188,7 +204,7 @@ export const databuddyScript = `(() => {
       if (!button) return;
       const block = copiedBlock(button);
       send("docs_code_copy", { surface, page, language: block?.dataset.language ?? "Text" });
-      if (installsSdk.test(block?.textContent ?? "")) send("install_command_copy", { surface, page });
+      if (installsSdk(block?.textContent ?? "")) send("install_command_copy", { surface, page });
     },
     { capture: true },
   );

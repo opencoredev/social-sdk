@@ -137,6 +137,19 @@ function load(path: string) {
       tracker()?.onload?.();
     },
     failTracker: () => tracker()?.onerror?.(),
+    // Astro's swap of <head> removes the tracker tag before it fires
+    // astro:page-load.
+    detachTracker: () => {
+      const stale = tracker();
+
+      if (stale) stale.isConnected = false;
+
+      return stale;
+    },
+    pageLoad: () => {
+      for (const listener of listeners.get("astro:page-load") ?? [])
+        listener({ target: new FakeElement("html"), button: 0 });
+    },
     // An Astro navigation that swaps <head> before the tracker downloads: the
     // old tag leaves the document and the loader adds a fresh one.
     navigateBeforeTrackerLoads: () => {
@@ -278,4 +291,37 @@ test("drops queued events when the tracker fails to load", () => {
   page.siteTrack("landing_cta_click", { cta: "install_copy" });
 
   assert.equal(page.pendingJson(), "[]");
+});
+
+test("counts only commands that install the package itself as install copies", () => {
+  const copies = (code: string) => {
+    const page = load("/docs/getting-started/installation/");
+    const button = copyButton();
+
+    new FakeElement("pre", { "data-language": "Bash" }, [button], code);
+    page.startTracker();
+    page.dispatch("click", button);
+
+    return page.sent.map(([event]) => event);
+  };
+
+  const install = ["docs_code_copy", "install_command_copy"];
+  const other = ["docs_code_copy"];
+
+  assert.deepEqual(copies("npm i -D @opencoredev/social-sdk@0.6.0"), install);
+  assert.deepEqual(copies("pnpm add zod \\\n  @opencoredev/social-sdk"), install);
+  assert.deepEqual(copies("npm install @opencoredev/social-sdk/x"), other);
+  assert.deepEqual(copies("npm install zod # pairs with @opencoredev/social-sdk"), other);
+  assert.deepEqual(copies("bun add zod && echo @opencoredev/social-sdk"), other);
+});
+
+test("retries a tracker whose tag errored after a navigation removed it", () => {
+  const page = load("/");
+
+  page.siteTrack("landing_cta_click", { cta: "primary" });
+  page.detachTracker()?.onerror?.();
+  page.pageLoad();
+  page.startTracker();
+
+  assert.deepEqual(page.sent, [["landing_cta_click", { cta: "primary" }]]);
 });
