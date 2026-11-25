@@ -3,7 +3,7 @@ title: Diagnostic CLI
 description: Check selected adapter configuration and validate a publish request locally without contacting social platforms or mutating social accounts.
 ---
 
-The `social-sdk` CLI never contacts a social platform. It never authenticates an account, opens a browser, uploads media or publishes content. Its only network request is one anonymous usage event per command, which you can turn off; see [CLI telemetry](/reference/telemetry). The package includes the executable after building or installing a packed build.
+The `social-sdk` CLI never contacts a social platform. It never authenticates an account, opens a browser, uploads media or publishes content. Its only network request is one best-effort anonymous usage event per command, other than the `telemetry` command, which you can turn off; see [CLI telemetry](/reference/telemetry). The package includes the executable after building or installing a packed build.
 
 ```sh
 social-sdk adapters --json

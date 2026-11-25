@@ -79,7 +79,7 @@ Give the Bluesky and Threads adapters a `backend` name that matches their key in
 
 ## Cross-post to seven networks from Bun
 
-To cross-post one update to X, Bluesky, Threads, LinkedIn, YouTube, TikTok and Instagram from Bun, register all seven direct adapters in one client and send a single `social.posts.publish` call with one target per account. Social SDK runs on Bun as well as Node.js: install it with `bun add @opencoredev/social-sdk` and run the file with `bun crosspost.ts`. The shared `content` carries the text. A target's own `content` adds what that network needs, here a video for YouTube, TikTok and Instagram, and its `options` carry that platform's required fields.
+To cross-post one update to X, Bluesky, Threads, LinkedIn, YouTube, TikTok and Instagram from Bun, register a direct adapter for each of them in one client and send a single `social.posts.publish` call with one target per account. Social SDK runs on Bun as well as Node.js: install it with `bun add @opencoredev/social-sdk` and run the file with `bun crosspost.ts`. The shared `content` carries the text. A target's own `content` adds what that network needs, here a video for YouTube, TikTok and Instagram, and its `options` carry that platform's required fields. This seven-network sample leaves out the eighth direct adapter, Facebook Pages.
 
 ```ts
 import { readFile } from "node:fs/promises";
