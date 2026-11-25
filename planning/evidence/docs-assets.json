@@ -1,121 +1,121 @@
 {
-  "recordedAt": "2026-11-09T15:00:46.134Z",
+  "recordedAt": "2026-11-25T08:39:20.194Z",
   "runtime": "Bun 1.4.4",
   "methodology": "Static production build bytes and per-file gzip. Whole-build totals include optional search, diagram and syntax chunks. Route lists are directly linked entries, not browser transfer measurements or a complete lazy-load graph.",
   "totals": {
     "js": {
-      "bytes": 5272947,
-      "gzipBytes": 1555373,
-      "files": 135
+      "bytes": 5327764,
+      "gzipBytes": 1577298,
+      "files": 139
     },
     "css": {
-      "bytes": 263437,
-      "gzipBytes": 39842,
+      "bytes": 263512,
+      "gzipBytes": 39850,
       "files": 1
     }
   },
   "routes": [
     {
       "route": "",
-      "htmlBytes": 88339,
-      "htmlGzipBytes": 19430,
+      "htmlBytes": 104508,
+      "htmlGzipBytes": 23754,
       "directlyLinkedAssets": []
     },
     {
       "route": "docs/",
-      "htmlBytes": 77067,
-      "htmlGzipBytes": 18681,
+      "htmlBytes": 114504,
+      "htmlGzipBytes": 24879,
       "directlyLinkedAssets": [
         {
-          "path": "_astro/RootLayout.astro_astro_type_script_index_0_lang.DSQOriez.js",
+          "path": "_astro/WebMcp.astro_astro_type_script_index_0_lang.BmY4MV5J.js",
           "kind": "js",
-          "bytes": 4808,
-          "gzipBytes": 2246
+          "bytes": 2784,
+          "gzipBytes": 1374
         },
         {
-          "path": "_astro/WebMcp.ClceImbp.css",
+          "path": "_astro/PageActions.astro_astro_type_script_index_0_lang.BAPjbZZV.js",
+          "kind": "js",
+          "bytes": 5916,
+          "gzipBytes": 2457
+        },
+        {
+          "path": "_astro/ClientRouter.astro_astro_type_script_index_0_lang.5_s3_L-3.js",
+          "kind": "js",
+          "bytes": 1634,
+          "gzipBytes": 811
+        },
+        {
+          "path": "_astro/Search.astro_astro_type_script_index_0_lang.ZiJVlcoJ.js",
+          "kind": "js",
+          "bytes": 12837,
+          "gzipBytes": 4099
+        },
+        {
+          "path": "_astro/WebMcp.BlSLa1sN.css",
           "kind": "css",
-          "bytes": 263437,
-          "gzipBytes": 39842
+          "bytes": 263512,
+          "gzipBytes": 39850
+        },
+        {
+          "path": "_astro/RootLayout.astro_astro_type_script_index_0_lang._Mg8U4Qf.js",
+          "kind": "js",
+          "bytes": 4808,
+          "gzipBytes": 2247
         },
         {
           "path": "_astro/page.DZ88yi4l.js",
           "kind": "js",
           "bytes": 47,
           "gzipBytes": 67
-        },
-        {
-          "path": "_astro/Search.astro_astro_type_script_index_0_lang.DjtvXL98.js",
-          "kind": "js",
-          "bytes": 12847,
-          "gzipBytes": 4097
-        },
-        {
-          "path": "_astro/WebMcp.astro_astro_type_script_index_0_lang.BynrwJg3.js",
-          "kind": "js",
-          "bytes": 2784,
-          "gzipBytes": 1374
-        },
-        {
-          "path": "_astro/PageActions.astro_astro_type_script_index_0_lang.CUt_GqiQ.js",
-          "kind": "js",
-          "bytes": 5941,
-          "gzipBytes": 2478
-        },
-        {
-          "path": "_astro/ClientRouter.astro_astro_type_script_index_0_lang.BBR9WB-E.js",
-          "kind": "js",
-          "bytes": 1634,
-          "gzipBytes": 812
         }
       ]
     },
     {
       "route": "docs/platforms/tiktok/",
-      "htmlBytes": 181525,
-      "htmlGzipBytes": 36281,
+      "htmlBytes": 219276,
+      "htmlGzipBytes": 42975,
       "directlyLinkedAssets": [
         {
-          "path": "_astro/RootLayout.astro_astro_type_script_index_0_lang.DSQOriez.js",
+          "path": "_astro/WebMcp.astro_astro_type_script_index_0_lang.BmY4MV5J.js",
           "kind": "js",
-          "bytes": 4808,
-          "gzipBytes": 2246
+          "bytes": 2784,
+          "gzipBytes": 1374
         },
         {
-          "path": "_astro/WebMcp.ClceImbp.css",
+          "path": "_astro/PageActions.astro_astro_type_script_index_0_lang.BAPjbZZV.js",
+          "kind": "js",
+          "bytes": 5916,
+          "gzipBytes": 2457
+        },
+        {
+          "path": "_astro/ClientRouter.astro_astro_type_script_index_0_lang.5_s3_L-3.js",
+          "kind": "js",
+          "bytes": 1634,
+          "gzipBytes": 811
+        },
+        {
+          "path": "_astro/Search.astro_astro_type_script_index_0_lang.ZiJVlcoJ.js",
+          "kind": "js",
+          "bytes": 12837,
+          "gzipBytes": 4099
+        },
+        {
+          "path": "_astro/WebMcp.BlSLa1sN.css",
           "kind": "css",
-          "bytes": 263437,
-          "gzipBytes": 39842
+          "bytes": 263512,
+          "gzipBytes": 39850
+        },
+        {
+          "path": "_astro/RootLayout.astro_astro_type_script_index_0_lang._Mg8U4Qf.js",
+          "kind": "js",
+          "bytes": 4808,
+          "gzipBytes": 2247
         },
         {
           "path": "_astro/page.DZ88yi4l.js",
           "kind": "js",
           "bytes": 47,
           "gzipBytes": 67
-        },
-        {
-          "path": "_astro/Search.astro_astro_type_script_index_0_lang.DjtvXL98.js",
-          "kind": "js",
-          "bytes": 12847,
-          "gzipBytes": 4097
-        },
-        {
-          "path": "_astro/WebMcp.astro_astro_type_script_index_0_lang.BynrwJg3.js",
-          "kind": "js",
-          "bytes": 2784,
-          "gzipBytes": 1374
-        },
-        {
-          "path": "_astro/PageActions.astro_astro_type_script_index_0_lang.CUt_GqiQ.js",
-          "kind": "js",
-          "bytes": 5941,
-          "gzipBytes": 2478
-        },
-        {
-          "path": "_astro/ClientRouter.astro_astro_type_script_index_0_lang.BBR9WB-E.js",
-          "kind": "js",
-          "bytes": 1634,
-          "gzipBytes": 812
         },
         {
           "path": "_astro/Tabs.astro_astro_type_script_index_0_lang.CDIyrySR.js",

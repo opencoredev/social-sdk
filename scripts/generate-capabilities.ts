@@ -15,6 +15,8 @@ const implementationPaths = new Map<string, readonly string[]>([
   ["posts.read", ["posts.get"]],
   ["posts.list", ["posts.list"]],
   ["posts.status", ["posts.getDelivery"]],
+  ["boards.read", ["native.listBoards"]],
+  ["posts.publish.continue", ["native.continueVideoPin"]],
   ["posts.cancelScheduled", ["posts.cancelScheduled"]],
   ["posts.deleteBackendRecord", ["posts.deleteBackendRecord"]],
   ["posts.removeFromPlatform", ["posts.removeFromPlatform"]],

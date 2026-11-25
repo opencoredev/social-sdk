@@ -1,0 +1,255 @@
+---
+title: Pinterest
+description: Create image, carousel, and video Pins on a board with the Pinterest API v5, with explicit processing outcomes for video.
+seo:
+  title: Create Pinterest Pins with TypeScript
+  description: Create image, carousel and video Pins from Node.js or Bun with the Pinterest API v5, including boards, the sandbox host, video processing and Pin deletion.
+---
+
+To create a Pin from a server, call `POST /v5/pins` with a board ID and a media source, using a user access token with the `pins:write` scope. Video Pins take three steps first: register the upload with `POST /v5/media`, upload the file to the URL Pinterest returns, and wait until `GET /v5/media/{media_id}` reports `succeeded`. The Social SDK Pinterest adapter runs these steps through `social.posts.publish` and returns `published` with the Pin ID, or `processing` while Pinterest is still preparing a video.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+```ts
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { pinterest } from "@opencoredev/social-sdk/pinterest";
+
+const social = createSocial({
+  backend: pinterest({
+    auth: {
+      accountId: process.env["PINTEREST_ACCOUNT_ID"]!,
+      accessToken: process.env["PINTEREST_ACCESS_TOKEN"]!,
+    },
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "pinterest",
+  accountId: process.env["PINTEREST_ACCOUNT_ID"]!,
+});
+
+const result = await social.posts.publish({
+  targets: [{ account, options: { boardId: "549755885175", title: "Autumn table" } }],
+  content: {
+    text: "Three ideas for an autumn table.",
+    link: { url: "https://example.com/autumn-table" },
+    media: [
+      {
+        kind: "image",
+        source: { kind: "https-url", url: "https://cdn.example.com/autumn.jpg" },
+        altText: "A table set with pumpkins and candles",
+      },
+    ],
+  },
+});
+```
+
+The adapter takes an existing access token and the numeric user account ID that `GET /v5/user_account` returns as `id`. Running the OAuth flow, refreshing tokens, and storing them stay with your application. The adapter trusts that pair as configured, as the other direct adapters do, so call `social.accounts.get(account)` once when you connect an account: it fails as `unauthorized` if the token belongs to someone else.
+
+## Setup
+
+<Steps>
+  <Step title="Create a Pinterest app">
+    Register an app on Pinterest's developer platform. A new app starts with Trial access, which can
+    write only to the sandbox host. Standard access is needed to create Pins in production.
+  </Step>
+  <Step title="Request the scopes">
+    Ask for `boards:read`, `boards:write`, `pins:read` and `pins:write` to create and delete Pins,
+    and `user_accounts:read` for account reads. The capability manifest lists the scopes for each
+    operation.
+  </Step>
+  <Step title="Store credentials server-side">
+    Set `PINTEREST_ACCOUNT_ID` and `PINTEREST_ACCESS_TOKEN` in server configuration. Never send the
+    token to a browser.
+  </Step>
+</Steps>
+
+### Sandbox
+
+Trial apps can only write to `api-sandbox.pinterest.com`. Set `sandbox: true` and use a sandbox token:
+
+```ts
+const backend = pinterest({
+  auth: {
+    accountId: process.env["PINTEREST_ACCOUNT_ID"]!,
+    accessToken: process.env["PINTEREST_SANDBOX_TOKEN"]!,
+  },
+  sandbox: true,
+});
+```
+
+Sandbox Pins are visible only to their owner, so a published outcome has no `url`. The sandbox cannot create video Pins, so preparation rejects a video with `pinterest.sandbox_video` and the manifest marks video publishing unsupported.
+
+## Publish options
+
+Every Pin goes to a board, so `boardId` is required. Pass Pinterest options in `targets[].options`; preparation rejects an option the adapter does not know (`pinterest.option`) instead of dropping it.
+
+| Option           | Wire field         | What it does                                                                                |
+| ---------------- | ------------------ | ------------------------------------------------------------------------------------------- |
+| `boardId`        | `board_id`         | Required. The numeric board ID. Read boards with `listBoards`.                              |
+| `boardSectionId` | `board_section_id` | A numeric section of that board.                                                            |
+| `title`          | `title`            | Up to 100 characters.                                                                       |
+| `link`           | `link`             | The destination URL, HTTP or HTTPS, up to 2,048 characters. Defaults to `content.link.url`. |
+
+`content.text` becomes the Pin `description` (up to 800 characters). `altText` on a single image or video becomes `alt_text` (up to 500 characters). The direct adapter exports `PinterestPublishOptions` if you want to type the options object.
+
+## Examples
+
+### Publish a carousel
+
+Two to five images become one carousel Pin (`multiple_image_urls`). An image's `caption` becomes that card's description. Pinterest takes alt text on single-image Pins only, so preparation rejects `altText` on carousel items.
+
+```ts
+await social.posts.publish({
+  targets: [{ account, options: { boardId: "549755885175" } }],
+  content: {
+    text: "Before and after",
+    media: [
+      { kind: "image", source: { kind: "https-url", url: "https://cdn.example.com/before.jpg" } },
+      { kind: "image", source: { kind: "https-url", url: "https://cdn.example.com/after.jpg" } },
+    ],
+  },
+});
+```
+
+### Local images
+
+By default the adapter accepts image URLs only, so a client with `mediaStaging` stages local images and sends their URLs as `image_url`. Without a staging store, set `imageBase64: true` to accept JPEG or PNG Blobs of up to 20 MB and send them as `image_base64` or `multiple_image_base64`. A carousel uses URLs for every image or Blobs for every image, not a mix.
+
+### Publish a video
+
+```ts
+import { MemoryPinterestWorkflowStore } from "@opencoredev/social-sdk/pinterest";
+
+declare const file: Blob;
+
+const videoSocial = createSocial({
+  backend: pinterest({
+    auth: {
+      accountId: process.env["PINTEREST_ACCOUNT_ID"]!,
+      accessToken: process.env["PINTEREST_ACCESS_TOKEN"]!,
+    },
+    workflowStore: new MemoryPinterestWorkflowStore(),
+  }),
+});
+
+const video = await videoSocial.posts.publish({
+  targets: [{ account, options: { boardId: "549755885175", title: "Quick recipe" } }],
+  content: {
+    text: "Dinner in ten minutes",
+    media: [
+      {
+        kind: "video",
+        mimeType: "video/mp4",
+        durationSeconds: 42,
+        source: { kind: "blob", blob: file, fingerprint: "recipe-v1" },
+        thumbnail: { kind: "https-url", url: "https://cdn.example.com/recipe-cover.jpg" },
+      },
+    ],
+  },
+});
+
+const [outcome] = video.outcomes;
+
+if (outcome?.delivery && outcome.state !== "published") {
+  // Later, from a job that may publish for this account.
+  const native = videoSocial.native("default", { acknowledgeUnsafe: true });
+  if (!native) throw new Error("Pinterest native module is unavailable");
+
+  const status = await videoSocial.posts.getDelivery(outcome.delivery);
+
+  if (status.state === "processing" && status.backendState === "MEDIA_READY") {
+    const next = await native.continueVideoPin({
+      delivery: outcome.delivery,
+      context: {
+        backendInstance: "default",
+        correlationId: "pinterest-video",
+        retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+      },
+    });
+
+    if (next.state === "published") console.log(next.post.postId);
+  }
+}
+```
+
+Pass the video as a Blob of an MP4, M4V or MOV file, 4 seconds to 5 minutes long, and an HTTPS `thumbnail` for the cover, sent as `cover_image_url`. The API schema also lists `cover_image_key_frame_time`, but Pinterest's video Pin guide says a valid cover image URL is required, so the adapter asks for one. The adapter uploads up to 2 GiB; Pinterest states no size limit for organic video Pins.
+
+`publishTarget` registers the upload, saves the workflow, posts the file with the `upload_parameters` to Pinterest's S3 bucket, and reads the media status once. It does not poll; the shared transport repeats a status read only when you set `retryBudget.maxAttempts` above 1. When the status is `succeeded` it creates the Pin and returns `published` with its ID. Pinterest notes that a new video Pin can show `creative_type: REGULAR` for a few seconds while it finishes processing; the Pin exists either way. While the status is `registered` or `processing`, the outcome is `processing` with a delivery reference. A `failed` status returns a `failed` outcome with code `media_error` and the `mediaId`.
+
+Continuing is split into a read and a write. `posts.getDelivery` is read-only: it returns the stored result, or reads the media status once and reports `processing` with `backendState: "MEDIA_READY"` when the upload is ready. It never creates a Pin. The native `continueVideoPin` sends that write: one status read, then at most one `POST /v5/pins`. Native calls bypass normalized authorization, so call it only from code that may publish for the account.
+
+A failed or unreadable status read, a workflow store error, or a Pin request that Pinterest rejected with 401, 403 or 429, or that was cancelled or timed out before it was sent, returns `failed` with the same delivery reference, the `mediaId` and `reconcile-first`. No Pin exists and the workflow stays continuable: continue it with `continueVideoPin` rather than publishing the target again, which would upload the video a second time. A failed `continueVideoPin` result carries Pinterest's own advice instead, such as `after-reconnect` for a 401 or `after-delay` with the `Retry-After` delay for a 429, because retrying it means continuing again.
+
+If the file was sent to S3 and the answer was missing or a 5xx, the outcome is `unknown` with `ambiguous-submission`, the `mediaId` and a delivery reference, and no Pin is requested. Call `posts.getDelivery`: `MEDIA_READY` means Pinterest has the file and `continueVideoPin` can create the Pin, while a status that stays `registered` means the upload never arrived. An upload cancelled or timed out before it was sent, or rejected by S3 with a 4xx, is `failed` with `never`, and you can publish the target again. If the store cannot save the workflow, the file is not sent. Video workflows exist only in production, so a sandbox adapter refuses `getDelivery` and `continueVideoPin` before any request.
+
+The workflow store keeps the pending Pin request. The default `MemoryPinterestWorkflowStore` lives in the process, which is fine for a script. On a server, implement `PinterestWorkflowStore` over shared storage so a processing video can be continued after a restart. Its `claim` must be atomic and held until `release`, with no expiry: a continuation rereads the row after it wins the claim, so it never acts on a stale copy, and one that loses the claim returns `processing` with `backendState: "CLAIMED"` and sends nothing. A worker that stops mid-continuation may already have sent the Pin request, so clear its claim only after you have checked the board. If the store fails to save a rejected Pin request back to `processing`, the outcome carries `backendState: "WORKFLOW_SAVE_FAILED"` with `reconcile-first` (plus `CLAIM_RELEASE_FAILED` when the claim could not be released either) and the row stays `creating`, so later calls report `unknown` and never resend. Pinterest did reject that request; once you have checked the board, set the row's `stage` back to `processing` and clear any leftover claim to continue it. A confirmed Pin whose row could not be saved stays `published` with its Pin ID and `backendState: "CREATED_WORKFLOW_SAVE_FAILED"`; write that `pinId` and `stage: "published"` to the row before clearing its claim. When several store steps fail, their markers are joined with commas. A failed media registration sends no file, so it returns `failed` without a delivery reference and the target can be published again.
+
+### Uncertain writes
+
+The adapter saves the workflow as `creating` before it sends the Pin request. If that request gets no readable answer, such as a 5xx or a dropped connection, the outcome is `unknown` with `ambiguous-submission`, and later `getDelivery` and `continueVideoPin` calls keep returning `unknown` without sending the request again. Check the board before you publish again. The same applies to image Pins: only a 200 or 201 with a numeric Pin ID confirms the Pin, so any other 2xx is `unknown`, not `failed`.
+
+A rejection Pinterest states is a `failed` outcome: 401 is `reconnect_required`, 403 is `missing_permission`, and 429 is `rate_limited` with the `Retry-After` delay when Pinterest sends one. A video Pin request rejected this way keeps its workflow, as described above. Writes are never retried for you.
+
+### Delete a Pin
+
+```ts
+import { platformPostRef } from "@opencoredev/social-sdk";
+
+await social.posts.removeFromPlatform(
+  platformPostRef({
+    backend: "default",
+    platform: "pinterest",
+    accountId: process.env["PINTEREST_ACCOUNT_ID"]!,
+    postId: "813744226420795884",
+  }),
+);
+```
+
+This sends `DELETE /v5/pins/{pin_id}`. A missing Pin fails with `not_found`.
+
+### Read the account
+
+`accounts.list` and `accounts.get` read `GET /v5/user_account` and return one record with `displayName` (the business name, or else the username) and `handle`. They fail as `unauthorized` when the token belongs to a different user account.
+
+## Native calls
+
+`listBoards` reads `GET /v5/boards` so you can show the boards to choose from. It needs `boards:read`. Native calls bypass normalized middleware such as tenant authorization, so wrap them in your own policy.
+
+```ts
+import type { AdapterOperationContext } from "@opencoredev/social-sdk";
+
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (!native) throw new Error("Pinterest native module is unavailable");
+
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: "pinterest-boards",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+};
+
+const boards = await native.listBoards({ account, context, limit: 50 });
+if (boards.nextCursor) {
+  const more = await native.listBoards({ account, context, limit: 50, cursor: boards.nextCursor });
+  console.log(more.items.length);
+}
+```
+
+`limit` is Pinterest's `page_size` (1 to 250, default 25) and `cursor` its `bookmark`. `privacy` filters to `PUBLIC` or `PROTECTED` boards. Without it, Pinterest returns every board the token can read, so the adapter keeps only boards marked `PUBLIC` or `PROTECTED` and drops `SECRET` boards and any board with a missing or unknown privacy value; a filtered page can hold fewer items than `limit`. Each board keeps `id`, `name`, `description`, `privacy`, `pin_count`, `follower_count`, `collaborator_count`, `created_at`, `board_pins_modified_at`, `is_ads_only` and `owner.username`.
+
+Pinterest creates Pins only on boards the account owns, but this list also holds group boards the account collaborates on. Offer a board as `boardId` only when its `owner.username` and the `handle` from `social.accounts.get(account)` are both present, nonempty and equal. Either can be missing, and two missing values are not a match.
+
+## Limits and requirements
+
+- Pinterest has no publish-time field in the API, so `posts.schedule` is unsupported. Use your own job runner.
+- Text-only Pins do not exist: every Pin needs one video or one to five images.
+- Pinterest API v5 has no comment endpoints.
+
+### Not supported yet
+
+Secret boards (which need `boards:read_secret`), reading or editing Pins, analytics, webhooks, ads and catalogs are not mapped. The capability manifest marks each of them unavailable.
+
+Sources: Pinterest's [Create Pin](https://developers.pinterest.com/docs/api/v5/pins-create), [Delete Pin](https://developers.pinterest.com/docs/api/v5/pins-delete), [List boards](https://developers.pinterest.com/docs/api/v5/boards-list), [Register media upload](https://developers.pinterest.com/docs/api/v5/media-create), [Get media upload details](https://developers.pinterest.com/docs/api/v5/media-get) and [Get user account](https://developers.pinterest.com/docs/api/v5/user_account-get) references, the OpenAPI description 5.32.0 (updated November 19, 2026), the [boards and Pins guide](https://developers.pinterest.com/docs/work-with-organic-content-and-users/create-boards-and-pins/) for the video flow, the [sandbox guide](https://developers.pinterest.com/docs/developer-tools/sandbox/), and the [Pin specs](https://help.pinterest.com/en/article/review-pin-specs) for file types and video length, all checked November 25, 2026.

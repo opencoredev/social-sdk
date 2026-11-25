@@ -79,7 +79,7 @@ Give the Bluesky and Threads adapters a `backend` name that matches their key in
 
 ## Cross-post to seven networks from Bun
 
-To cross-post one update to X, Bluesky, Threads, LinkedIn, YouTube, TikTok and Instagram from Bun, register a direct adapter for each of them in one client and send a single `social.posts.publish` call with one target per account. Social SDK runs on Bun as well as Node.js: install it with `bun add @opencoredev/social-sdk` and run the file with `bun crosspost.ts`. The shared `content` carries the text. A target's own `content` adds what that network needs, here a video for YouTube, TikTok and Instagram, and its `options` carry that platform's required fields. This seven-network sample leaves out the eighth direct adapter, Facebook Pages.
+To cross-post one update to X, Bluesky, Threads, LinkedIn, YouTube, TikTok and Instagram from Bun, register a direct adapter for each of them in one client and send a single `social.posts.publish` call with one target per account. Social SDK runs on Bun as well as Node.js: install it with `bun add @opencoredev/social-sdk` and run the file with `bun crosspost.ts`. The shared `content` carries the text. A target's own `content` adds what that network needs, here a video for YouTube, TikTok and Instagram, and its `options` carry that platform's required fields. This seven-network sample leaves out the other direct adapters, Facebook Pages and Pinterest.
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -239,6 +239,7 @@ Use this page to choose a platform adapter before you read its setup guide. The 
 | Instagram | Images, video, carousels                    | Posts, feeds, profiles where declared | Not exposed     | Post and account          |
 | LinkedIn  | Text, images, multi-image, video, documents | Posts, feeds                          | Not exposed     | Post and account          |
 | Facebook  | Text, links, photos, video, Reels           | Page posts, comments                  | Not exposed     | Post, Page, reports       |
+| Pinterest | Images, video, carousels                    | Account, boards                       | Not exposed     | Not exposed               |
 
 “Not exposed” means the normalized direct adapter does not expose that operation. “Where declared” means the selected adapter implements the corresponding `graph` or profile capability; it is not a promise that every account or platform supports every method. Native modules add typed platform-specific operations such as video uploads, reposts, profiles, captions, playlists, drafts, and approval-gated features; see the capability matrix for their exact status. Content limits, permissions, account rules, upload behavior, API versions, and processing states remain platform-specific; open the platform guide for those details. Managed backends may expose additional operations for the same platform through their own route.
 
@@ -271,6 +272,9 @@ The normalized table is intentionally compact. Search, where declared, returns p
   </Card>
   <Card title="Facebook" href="/platforms/facebook">
     Publish and schedule Page posts, photos, videos, and Reels with a Page access token.
+  </Card>
+  <Card title="Pinterest" href="/platforms/pinterest">
+    Create image, carousel, and video Pins on a board, with a sandbox host for Trial apps.
   </Card>
 </CardGroup>
 

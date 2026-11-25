@@ -69,6 +69,11 @@ export default defineConfig({
             },
             { label: "LinkedIn", root: "/platforms/linkedin", icon: "/integrations/linkedin.svg" },
             { label: "Facebook", root: "/platforms/facebook", icon: "/integrations/facebook.svg" },
+            {
+              label: "Pinterest",
+              root: "/platforms/pinterest",
+              icon: "/integrations/pinterest.svg",
+            },
           ],
         },
         {

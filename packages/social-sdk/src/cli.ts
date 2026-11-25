@@ -23,6 +23,7 @@ import { tiktok } from "./platforms/tiktok.js";
 import { instagram } from "./platforms/instagram.js";
 import { linkedin } from "./platforms/linkedin.js";
 import { facebook } from "./platforms/facebook.js";
+import { pinterest } from "./platforms/pinterest.js";
 import { createSocialToolkit, type SocialToolName } from "./ai/toolkit.js";
 import { createMcpServer } from "./mcp/server.js";
 import { serveMcpStdio } from "./mcp/stdio.js";
@@ -54,6 +55,7 @@ export const adapterNames = [
   "instagram",
   "linkedin",
   "facebook",
+  "pinterest",
 ] as const;
 
 export type AdapterName = (typeof adapterNames)[number];
@@ -83,6 +85,7 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   instagram: ["INSTAGRAM_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN"],
   linkedin: ["LINKEDIN_AUTHOR_URN", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_API_VERSION"],
   facebook: ["FACEBOOK_PAGE_ID", "FACEBOOK_PAGE_ACCESS_TOKEN"],
+  pinterest: ["PINTEREST_ACCOUNT_ID", "PINTEREST_ACCESS_TOKEN"],
 };
 
 const noNetwork: typeof globalThis.fetch = async () => {
@@ -149,6 +152,14 @@ export function createDiagnosticAdapter(
     case "facebook":
       return facebook({
         auth: { pageId: accountId, accessToken: "offline-placeholder" },
+        fetch: noNetwork,
+      });
+    case "pinterest":
+      return pinterest({
+        auth: {
+          accountId: /^\d{1,32}$/.test(accountId) ? accountId : "1",
+          accessToken: "offline-placeholder",
+        },
         fetch: noNetwork,
       });
   }
