@@ -112,8 +112,7 @@
         "feature:pinterest\\.publish\\.video"
       ],
       "docs": [
-        "cover_image_url",
-        "coverImageKeyFrameTime"
+        "cover_image_url"
       ]
     }
   },

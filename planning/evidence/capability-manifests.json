@@ -16414,7 +16414,7 @@
               "video/quicktime"
             ]
           },
-          "notes": "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; continue it with posts.getDelivery. Needs an HTTPS thumbnail or coverImageKeyFrameTime."
+          "notes": "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; continue it with posts.getDelivery. Needs an HTTPS thumbnail for the cover."
         },
         {
           "platform": "pinterest",

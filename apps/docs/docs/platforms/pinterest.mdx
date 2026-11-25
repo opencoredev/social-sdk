@@ -87,13 +87,12 @@ Sandbox Pins are visible only to their owner, so a published outcome has no `url
 
 Every Pin goes to a board, so `boardId` is required. Pass Pinterest options in `targets[].options`; preparation rejects an option the adapter does not know (`pinterest.option`) instead of dropping it.
 
-| Option                   | Wire field                   | What it does                                                                                                |
-| ------------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `boardId`                | `board_id`                   | Required. The numeric board ID. Read boards with `listBoards`.                                              |
-| `boardSectionId`         | `board_section_id`           | A numeric section of that board.                                                                            |
-| `title`                  | `title`                      | Up to 100 characters.                                                                                       |
-| `link`                   | `link`                       | The destination URL, HTTP or HTTPS, up to 2,048 characters. Defaults to `content.link.url`.                 |
-| `coverImageKeyFrameTime` | `cover_image_key_frame_time` | Video only. The second of the video to use as the cover, instead of an HTTPS `thumbnail` on the attachment. |
+| Option           | Wire field         | What it does                                                                                |
+| ---------------- | ------------------ | ------------------------------------------------------------------------------------------- |
+| `boardId`        | `board_id`         | Required. The numeric board ID. Read boards with `listBoards`.                              |
+| `boardSectionId` | `board_section_id` | A numeric section of that board.                                                            |
+| `title`          | `title`            | Up to 100 characters.                                                                       |
+| `link`           | `link`             | The destination URL, HTTP or HTTPS, up to 2,048 characters. Defaults to `content.link.url`. |
 
 `content.text` becomes the Pin `description` (up to 800 characters). `altText` on a single image or video becomes `alt_text` (up to 500 characters). The direct adapter exports `PinterestPublishOptions` if you want to type the options object.
 
@@ -162,11 +161,11 @@ if (outcome?.state === "processing" && outcome.delivery) {
 }
 ```
 
-Pass the video as a Blob of an MP4, M4V or MOV file, 4 seconds to 5 minutes long, with one cover: an HTTPS `thumbnail` (sent as `cover_image_url`) or the `coverImageKeyFrameTime` option. The adapter uploads up to 2 GiB; Pinterest states no size limit for organic video Pins.
+Pass the video as a Blob of an MP4, M4V or MOV file, 4 seconds to 5 minutes long, and an HTTPS `thumbnail` for the cover, sent as `cover_image_url`. The API schema also lists `cover_image_key_frame_time`, but Pinterest's video Pin guide says a valid cover image URL is required, so the adapter asks for one. The adapter uploads up to 2 GiB; Pinterest states no size limit for organic video Pins.
 
-`publishTarget` registers the upload, posts the file with the `upload_parameters` to Pinterest's S3 bucket, and reads the media status once. It does not poll. When the status is `succeeded` it creates the Pin and returns `published`; while it is `registered` or `processing` it returns `processing` with a delivery reference. Call `posts.getDelivery` with that reference to continue. A `failed` status returns a `failed` outcome with code `media_error` and the `mediaId`.
+`publishTarget` registers the upload, posts the file with the `upload_parameters` to Pinterest's S3 bucket, and reads the media status once. It does not poll. When the status is `succeeded` it creates the Pin and returns `published` with its ID. Pinterest notes that a new video Pin can still show `creative_type: REGULAR` for a few seconds while it finishes processing; the Pin exists either way. while it is `registered` or `processing` it returns `processing` with a delivery reference. Call `posts.getDelivery` with that reference to continue. A `failed` status returns a `failed` outcome with code `media_error` and the `mediaId`.
 
-The workflow store keeps the pending Pin request. The default `MemoryPinterestWorkflowStore` lives in the process, which is fine for a script. On a server, implement `PinterestWorkflowStore` over shared storage so a processing video can be continued after a restart. Its `claim` must be atomic: a continuation that loses the claim returns `processing` with `backendState: "CLAIMED"` and sends nothing.
+The workflow store keeps the pending Pin request. The default `MemoryPinterestWorkflowStore` lives in the process, which is fine for a script. On a server, implement `PinterestWorkflowStore` over shared storage so a processing video can be continued after a restart. Its `claim` must be atomic: a continuation rereads the row after it wins the claim, so it never acts on a stale copy, and one that loses the claim returns `processing` with `backendState: "CLAIMED"` and sends nothing.
 
 ### Uncertain writes
 
@@ -218,7 +217,7 @@ if (boards.nextCursor) {
 }
 ```
 
-`limit` is Pinterest's `page_size` (1 to 250, default 25) and `cursor` its `bookmark`. `privacy` filters to `PUBLIC` or `PROTECTED` boards. Each board keeps `id`, `name`, `description`, `privacy`, `pin_count`, `follower_count`, `collaborator_count`, `created_at`, `board_pins_modified_at` and `is_ads_only`.
+`limit` is Pinterest's `page_size` (1 to 250, default 25) and `cursor` its `bookmark`. `privacy` filters to `PUBLIC` or `PROTECTED` boards. Without it, Pinterest returns every board the token can read, so the adapter drops any `SECRET` board from the page; a filtered page can hold fewer items than `limit`. Each board keeps `id`, `name`, `description`, `privacy`, `pin_count`, `follower_count`, `collaborator_count`, `created_at`, `board_pins_modified_at` and `is_ads_only`.
 
 ## Limits and requirements
 

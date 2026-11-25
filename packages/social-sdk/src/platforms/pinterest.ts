@@ -23,7 +23,6 @@ import { remainingBudget } from "../transport/budget.js";
 import { httpsUrl, upload } from "../transport/upload.js";
 import {
   array,
-  isFiniteNumber,
   isJsonObject,
   isString,
   object,
@@ -92,13 +91,7 @@ const accountFields = [
   "profile_image",
 ] as const;
 
-const optionKeys: ReadonlySet<string> = new Set([
-  "boardId",
-  "boardSectionId",
-  "title",
-  "link",
-  "coverImageKeyFrameTime",
-]);
+const optionKeys: ReadonlySet<string> = new Set(["boardId", "boardSectionId", "title", "link"]);
 
 /** Target options of the direct Pinterest adapter. `content.text` becomes the Pin description. */
 export interface PinterestPublishOptions {
@@ -110,11 +103,6 @@ export interface PinterestPublishOptions {
   readonly title?: string;
   /** `link`, the destination URL, up to 2,048 characters. Defaults to `content.link.url`. */
   readonly link?: string;
-  /**
-   * Video only: `cover_image_key_frame_time`, the second of the video used as its cover. Use it
-   * instead of an HTTPS `thumbnail` on the video attachment.
-   */
-  readonly coverImageKeyFrameTime?: number;
 }
 
 export interface PinterestOptions {
@@ -394,7 +382,6 @@ export function pinterest(
       );
 
     const media = target.content.media ?? [];
-    const keyFrame = config["coverImageKeyFrameTime"];
     const blobs: Blob[] = [];
     let mediaSource: JsonObject = {};
     let altText: string | undefined;
@@ -439,41 +426,19 @@ export function pinterest(
           "content.media[0].durationSeconds",
         );
 
-      if (
-        keyFrame !== undefined &&
-        (!isFiniteNumber(keyFrame) || !Number.isSafeInteger(keyFrame) || keyFrame < 0)
-      )
+      // The schema also lists cover_image_key_frame_time, but the video Pin guide requires a
+      // valid cover_image_url, so the adapter requires an HTTPS thumbnail.
+      if (thumbnail?.kind !== "https-url" || !isHttpsMediaUrl(thumbnail.url))
         fail(
           "pinterest.cover",
-          "coverImageKeyFrameTime must be a whole number of seconds from 0.",
-          "options.coverImageKeyFrameTime",
-        );
-
-      if ((thumbnail === undefined) === (keyFrame === undefined))
-        fail(
-          "pinterest.cover",
-          "Give the video Pin one cover: an HTTPS thumbnail or coverImageKeyFrameTime.",
-          "content.media[0].thumbnail",
-        );
-
-      if (
-        thumbnail !== undefined &&
-        (thumbnail.kind !== "https-url" || !isHttpsMediaUrl(thumbnail.url))
-      )
-        fail(
-          "pinterest.cover",
-          "The video cover thumbnail must be a public HTTPS URL.",
+          "Give the video Pin a cover: a public HTTPS thumbnail on the attachment.",
           "content.media[0].thumbnail",
         );
 
       altText = first.altText;
       mediaSource = {
         source_type: "video_id",
-        ...(thumbnail?.kind === "https-url"
-          ? { cover_image_url: thumbnail.url }
-          : isFiniteNumber(keyFrame)
-            ? { cover_image_key_frame_time: keyFrame }
-            : {}),
+        cover_image_url: thumbnail?.kind === "https-url" ? thumbnail.url : "",
       };
     } else if (
       media.length < 1 ||
@@ -716,14 +681,22 @@ export function pinterest(
       // A stated rejection created no Pin: a rate limit can be continued later and any other
       // rejection ends the workflow. An unanswered request stays `creating` and is never resent.
       if (
-        error instanceof SocialError &&
-        error.code !== "ambiguous_outcome" &&
-        error.code !== "timeout" &&
-        error.code !== "cancelled"
+        !(error instanceof SocialError) ||
+        error.code === "ambiguous_outcome" ||
+        error.code === "timeout" ||
+        error.code === "cancelled"
       )
-        await workflows.update(workflow.id, {
-          stage: error.code === "rate_limited" ? "processing" : "failed",
-        });
+        return {
+          ...base,
+          observedAt: now(),
+          state: "unknown",
+          reason: "ambiguous-submission",
+          diagnostic: "The Pin request was sent without a confirmed answer and was not repeated.",
+        };
+
+      await workflows.update(workflow.id, {
+        stage: error.code === "rate_limited" ? "processing" : "failed",
+      });
       throw error;
     }
 
@@ -761,20 +734,35 @@ export function pinterest(
     if (!numericId(mediaId) || !isString(uploadUrl) || !isJsonObject(parameters))
       throw mediaError("Pinterest returned an unusable media registration. No Pin was created.");
 
-    const form = new FormData();
+    // Build the multipart body from parts around the original Blob, so the file is not copied.
+    const boundary = "pinterest-" + globalThis.crypto.randomUUID().replaceAll("-", "");
+    const parts: (string | Blob)[] = [];
 
     for (const [name, value] of Object.entries(parameters)) {
-      if (!isString(value))
+      if (!isString(value) || /["\r\n]/.test(name) || /[\r\n]/.test(value))
         throw mediaError(
           "Pinterest returned an unusable upload parameter. No Pin was created.",
           mediaId,
         );
-      form.append(name, value);
+      parts.push(
+        "--" +
+          boundary +
+          '\r\nContent-Disposition: form-data; name="' +
+          name +
+          '"\r\n\r\n' +
+          value +
+          "\r\n",
+      );
     }
 
-    form.append("file", new Blob([video.blob], { type: video.mimeType }), "video");
-    // Serializing through Response yields the bytes and the multipart boundary in the Blob type.
-    const body = await new Response(form).blob();
+    parts.push(
+      "--" + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="video"\r\n',
+      "Content-Type: " + video.mimeType + "\r\n\r\n",
+      video.blob,
+      "\r\n--" + boundary + "--\r\n",
+    );
+
+    const body = new Blob(parts, { type: "multipart/form-data; boundary=" + boundary });
 
     try {
       await upload({
@@ -889,7 +877,7 @@ export function pinterest(
                 allowedMimeTypes: videoMimeTypes,
               },
               notes:
-                "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; continue it with posts.getDelivery. Needs an HTTPS thumbnail or coverImageKeyFrameTime.",
+                "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; continue it with posts.getDelivery. Needs an HTTPS thumbnail for the cover.",
             },
         {
           platform: "pinterest",
@@ -1045,36 +1033,60 @@ export function pinterest(
           accountId: ref.accountId,
         };
 
-        const delivery = deliveryRef(account, workflow.id);
-        const base = { targetIndex: 0, account, delivery, observedAt: now() };
+        const settled = (row: PinterestVideoWorkflow): DeliveryOutcome | undefined => {
+          const delivery = deliveryRef(account, row.id);
+          const base = { targetIndex: 0, account, delivery, observedAt: now() };
 
-        if (workflow.stage === "published" && workflow.pinId !== undefined)
-          return published(account, workflow.pinId, delivery);
+          if (row.stage === "processing") return undefined;
 
-        if (workflow.stage === "failed")
-          return {
-            ...base,
-            state: "failed",
-            code: "media_error",
-            message: "The Pinterest video Pin was not created.",
-            mediaId: workflow.mediaId,
-            retryDisposition: { kind: "never" },
-          };
+          if (row.stage === "published" && row.pinId !== undefined)
+            return published(account, row.pinId, delivery);
 
-        if (workflow.stage !== "processing")
+          if (row.stage === "failed")
+            return {
+              ...base,
+              state: "failed",
+              code: "media_error",
+              message: "The Pinterest video Pin was not created.",
+              mediaId: row.mediaId,
+              retryDisposition: { kind: "never" },
+            };
+
           return {
             ...base,
             state: "unknown",
             reason: "ambiguous-submission",
-            mediaId: workflow.mediaId,
+            mediaId: row.mediaId,
             diagnostic: "The Pin request was sent without a confirmed answer and was not repeated.",
           };
+        };
+
+        const stored = settled(workflow);
+
+        if (stored !== undefined) return stored;
 
         if (!(await workflows.claim(workflow.id)))
-          return { ...base, state: "processing", backendState: "CLAIMED" };
+          return {
+            targetIndex: 0,
+            account,
+            delivery: deliveryRef(account, workflow.id),
+            observedAt: now(),
+            state: "processing",
+            backendState: "CLAIMED",
+          };
 
         try {
-          return await continueVideo(workflow, account, context);
+          // Another continuation may have finished between the read and the claim.
+          const current = await workflows.get(workflow.id);
+
+          if (current === undefined)
+            throw new SocialError({
+              code: "not_found",
+              operation: "pinterest.posts.status",
+              message: "The Pinterest video workflow disappeared from the store.",
+            });
+
+          return settled(current) ?? (await continueVideo(current, account, context));
         } finally {
           await workflows.release?.(workflow.id);
         }
@@ -1141,7 +1153,11 @@ export function pinterest(
           }),
         );
 
-        const items = array(result["items"]).map((board) => publicFields(board, boardFields));
+        // Without a privacy filter Pinterest returns every board the token may read, which
+        // includes secret boards when it holds boards:read_secret. Keep only public and protected.
+        const items = array(result["items"])
+          .map((board) => publicFields(board, boardFields))
+          .filter((board) => board["privacy"] !== "SECRET");
 
         if (items.some((board) => !numericId(board["id"])))
           throw new SocialError({

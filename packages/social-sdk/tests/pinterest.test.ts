@@ -4,6 +4,7 @@ import {
   MemoryPinterestWorkflowStore,
   pinterest,
   type PinterestOptions,
+  type PinterestVideoWorkflow,
 } from "../src/platforms/pinterest.js";
 import {
   connectedAccountRef,
@@ -368,17 +369,21 @@ function videoWithoutCover(): MediaAttachment {
 
 const s3 = "pinterest-media-upload.s3-accelerate.amazonaws.com";
 
-/** Records the workflow IDs the adapter creates, so a test can read them back. */
-class RecordingStore extends MemoryPinterestWorkflowStore {
-  readonly ids: string[] = [];
+test("a video Pin needs an HTTPS cover thumbnail", () => {
+  const { adapter } = client(route({}).fetch);
 
-  override async create(input: Parameters<MemoryPinterestWorkflowStore["create"]>[0]) {
-    const row = await super.create(input);
-    this.ids.push(row.id);
+  const codes = adapter
+    .posts!.prepareTarget({
+      targetIndex: 0,
+      targetKey: "0",
+      account,
+      content: { media: [videoWithoutCover()] },
+      options: { boardId: "1" },
+    })
+    .map((issue) => issue.code);
 
-    return row;
-  }
-}
+  assert.deepEqual(codes, ["pinterest.cover"]);
+});
 
 test("[feature:pinterest.publish.video] a video registers media, uploads to S3, reads status once and creates the Pin", async () => {
   const { fetch, calls } = route({
@@ -440,8 +445,8 @@ test("[feature:pinterest.publish.video] a processing video returns processing, a
   const { social } = client(fetch, { workflowStore });
 
   const result = await social.posts.publish({
-    targets: [{ account, options: { boardId: "1", coverImageKeyFrameTime: 2 } }],
-    content: { media: [videoWithoutCover()] },
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
   });
 
   const first = only(result.outcomes);
@@ -456,7 +461,7 @@ test("[feature:pinterest.publish.video] a processing video returns processing, a
   );
   assert.deepEqual(calls.at(-1)?.json?.["media_source"], {
     source_type: "video_id",
-    cover_image_key_frame_time: 2,
+    cover_image_url: "https://cdn.example.test/cover.jpg",
     media_id: "12345",
   });
 
@@ -475,7 +480,7 @@ test("a concurrent continuation of the same video is not run twice", async () =>
     mediaId: "12345",
     pin: {
       board_id: "1",
-      media_source: { source_type: "video_id", cover_image_key_frame_time: 0 },
+      media_source: { source_type: "video_id", cover_image_url: "https://cdn.example.test/c.jpg" },
     },
     stage: "processing",
   });
@@ -614,9 +619,7 @@ test("[feature:pinterest.uncertain] an unanswered or unreadable Pin creation is 
   }
 });
 
-test("an unanswered video Pin request is never resent by getDelivery", async () => {
-  const workflowStore = new RecordingStore();
-
+test("[feature:pinterest.uncertain] an unanswered video Pin request returns unknown with its delivery and is never resent", async () => {
   const { fetch, calls } = route({
     ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
     ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
@@ -624,25 +627,60 @@ test("an unanswered video Pin request is never resent by getDelivery", async () 
     ["POST " + api + "/v5/pins"]: [json(fixtures.error(1, "Internal"), 502)],
   });
 
-  const { adapter } = client(fetch, { workflowStore });
+  const { social } = client(fetch);
 
-  const target: PreparedPublishTarget = {
-    targetIndex: 0,
-    targetKey: "0",
-    account,
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
     content: { media: [video()] },
-    options: { boardId: "1" },
-  };
+  });
 
-  const error = await adapter
-    .posts!.publishTarget(target, context)
-    .catch((cause: unknown) => cause);
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "unknown");
+  assert.equal(outcome.reason, "ambiguous-submission");
+  assert.equal(outcome.mediaId, "12345");
+  assert.ok(outcome.delivery);
 
-  assert.ok(error instanceof SocialError);
-  assert.equal(error.code, "ambiguous_outcome");
+  const again = await social.posts.getDelivery(outcome.delivery);
+  assert.equal(again.state, "unknown");
+  assert.equal(calls.length, 4);
+});
 
-  const row = await workflowStore.get(workflowStore.ids[0] ?? "");
-  assert.equal(row?.stage, "creating");
+test("a continuation that claims a stale snapshot rereads the row and sends nothing", async () => {
+  /** Returns the row as first read, once, to model a reader that paused before claiming. */
+  class StaleStore extends MemoryPinterestWorkflowStore {
+    stale: PinterestVideoWorkflow | undefined;
+
+    override async get(id: string) {
+      const snapshot = this.stale;
+
+      if (snapshot !== undefined) {
+        this.stale = undefined;
+
+        return snapshot;
+      }
+
+      return super.get(id);
+    }
+  }
+
+  const workflowStore = new StaleStore();
+
+  const workflow = await workflowStore.create({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: {
+      board_id: "1",
+      media_source: { source_type: "video_id", cover_image_url: "https://cdn.example.test/c.jpg" },
+    },
+    stage: "processing",
+  });
+
+  workflowStore.stale = workflow;
+  await workflowStore.update(workflow.id, { stage: "published", pinId: fixtures.pin.id });
+
+  const { fetch, calls } = route({});
+  const { adapter } = client(fetch, { workflowStore });
 
   const outcome = await adapter.posts!.getDelivery!(
     {
@@ -651,13 +689,14 @@ test("an unanswered video Pin request is never resent by getDelivery", async () 
       backend: "default",
       platform: "pinterest",
       accountId,
-      deliveryId: row?.id ?? "",
+      deliveryId: workflow.id,
     },
-    { ...context },
+    context,
   );
 
-  assert.equal(outcome.state, "unknown");
-  assert.equal(calls.length, 4);
+  assert.ok(outcome.state === "published");
+  assert.equal(outcome.post.postId, fixtures.pin.id);
+  assert.equal(calls.length, 0);
 });
 
 test("[feature:pinterest.errors] permission, reconnect and rate-limit answers map to failed outcomes", async () => {
@@ -790,7 +829,15 @@ test("[feature:pinterest.accounts] accounts.list reads user_account and rejects 
 });
 
 test("[feature:pinterest.boards] native.listBoards pages with bookmark, page_size and privacy", async () => {
-  const { fetch, calls } = route({ ["GET " + api + "/v5/boards"]: [json(fixtures.boardsPage)] });
+  const { fetch, calls } = route({
+    ["GET " + api + "/v5/boards"]: [
+      json({
+        ...fixtures.boardsPage,
+        items: [...fixtures.boardsPage.items, { id: "9", name: "Hidden", privacy: "SECRET" }],
+      }),
+    ],
+  });
+
   const { adapter } = client(fetch);
 
   const page = await adapter.native!.listBoards({
@@ -802,6 +849,7 @@ test("[feature:pinterest.boards] native.listBoards pages with bookmark, page_siz
   });
 
   assert.equal(page.nextCursor, "ZmlsdGVyOjE=");
+  assert.equal(page.items.length, 1);
   assert.equal(page.items[0]?.["id"], "549755885175");
   assert.equal(page.items[0]?.["owner"], undefined);
   assert.equal(calls[0]?.url.searchParams.get("page_size"), "100");
