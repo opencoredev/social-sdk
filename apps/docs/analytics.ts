@@ -141,7 +141,7 @@ export const posthogScript = `(() => {
     const event = classify(path);
     if (!event) return;
     // A queued visit keeps its own URL instead of the page PostHog started on.
-    window.posthog.capture(event[0], url ? { ...event[1], $current_url: url } : event[1]);
+    client.capture(event[0], url ? { ...event[1], $current_url: url } : event[1]);
   };
   // Routes visited before PostHog starts wait here, so a quick hop through the
   // docs still records each page.
@@ -159,11 +159,16 @@ export const posthogScript = `(() => {
       return [];
     }
   })();
+  // The loaded SDK instance. Until it exists, window.posthog is the loader's stub.
+  let client = null;
   let started = false;
   addEventListener("pagehide", () => {
     if (started || queued.length === 0) return;
     try {
-      sessionStorage.setItem(carryKey, JSON.stringify(queued));
+      // Another page of this tab may have carried events since this one loaded,
+      // such as a page left before a back/forward cache restore of this one.
+      const carried = JSON.parse(sessionStorage.getItem(carryKey) ?? "[]");
+      sessionStorage.setItem(carryKey, JSON.stringify([...(Array.isArray(carried) ? carried : []), ...queued]));
       // A page restored from the back/forward cache must not send them again.
       queued.length = 0;
     } catch {
@@ -177,7 +182,7 @@ export const posthogScript = `(() => {
     // has run waits in window.databuddyPending until the Databuddy loader sends it.
     if (window.databuddy) window.databuddy.track(event, properties);
     else (window.databuddyPending ??= []).push([event, properties]);
-    if (started) window.posthog.capture(event, properties, { send_instantly: true });
+    if (started) client.capture(event, properties, { send_instantly: true });
     // A queued event keeps the URL of the page that reported it, as queued visits do.
     else queued.push([event, { ...properties, $current_url: window.location.origin + window.location.pathname }]);
   };
@@ -207,11 +212,12 @@ export const posthogScript = `(() => {
       // Until the SDK has loaded, window.posthog is the loader's stub, and an
       // event captured there is lost if the visitor leaves first. So events keep
       // waiting in pending and queued, which pagehide carries to the next page.
-      loaded: () => {
+      loaded: (instance) => {
+        client = instance;
         started = true;
         pending.splice(0).forEach(([path, url]) => track(path, url));
         queued.splice(0).forEach(([event, properties]) =>
-          window.posthog.capture(event, properties, { send_instantly: true }),
+          client.capture(event, properties, { send_instantly: true }),
         );
       },
     });
