@@ -3553,13 +3553,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   }
 
   function mediaHttpError(error: HttpError): SocialError {
-    if (error.data?.code === "usage-capped")
+    if (error.data?.code === "usage-capped" || error.status === 402)
       return new SocialError({
         code: "billing_required",
         operation: "media.upload",
         message: "X usage is capped. Check credits and spending limits before retrying.",
         upstreamStatus: error.status,
-        upstreamCode: "usage-capped",
+        ...definedFields({
+          upstreamCode: error.data?.code === "usage-capped" ? "usage-capped" : undefined,
+        }),
         retryDisposition: { kind: "never" },
       });
 
@@ -5740,13 +5742,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           target.replyTo &&
           (target.replyTo.platform !== "x" ||
             target.replyTo.backend !== target.account.backend ||
-            target.replyTo.accountId !== target.account.accountId ||
             target.replyTo.kind !== "platform-post")
         )
-          fail(
-            "x.reply",
-            "Use a platform-post reply reference authorized for this account and backend.",
-          );
+          fail("x.reply", "Use an X platform-post reply reference on this account's backend.");
 
         const media = target.content.media ?? [];
 

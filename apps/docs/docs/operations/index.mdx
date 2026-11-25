@@ -21,7 +21,7 @@ The package does not bill or proxy usage. Platform and managed-provider plans ma
 
 ## Diagnostics
 
-Diagnostics should be explicit, read-only, and redact secrets, tokens, media, message bodies, and account credentials. For each failure, log the `SocialError` fields `code`, `operation`, `correlationId`, `upstreamStatus`, `upstreamCode`, and `retryDisposition`. `SocialError` does not carry provider request IDs.
+Diagnostics should be explicit, read-only, and redact secrets, tokens, media, message bodies, and account credentials. For each failure, log the `SocialError` fields `code`, `correlationId`, `upstreamStatus`, and `retryDisposition`. `operation` and `upstreamCode` can carry provider IDs or values, so treat them, like the `account` reference and `details`, as tenant data (see [errors](/reference/errors#serialization)). `SocialError` does not carry provider request IDs.
 
 `social.capabilities()` returns each adapter's static manifest. It is local and makes no request. Before dispatch, the client checks the operation against that manifest; it does not probe the backend, the account's scopes, or its eligibility. Account-specific problems surface when the provider rejects the call.
 

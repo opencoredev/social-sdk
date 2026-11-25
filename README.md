@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://social-sdk.dev"><img alt="Social SDK: one typed call, every platform. Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube wired to one client." src=".github/assets/readme-banner.png" width="100%" /></a>
+  <a href="https://social-sdk.dev"><img alt="Social SDK: one typed call, every platform. Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube wired to one client. Facebook Pages is supported too." src=".github/assets/readme-banner.png" width="100%" /></a>
 </p>
 
 <p align="center">
@@ -74,7 +74,7 @@ Read the [platform capability matrix](https://social-sdk.dev/docs/reference/capa
 
 ## CLI
 
-The `social-sdk` CLI never contacts a social platform. It does not authenticate accounts, upload media, or publish content. It sends one anonymous usage event per command (command, adapter, SDK version, runtime and OS) after a one-time notice; turn that off with `social-sdk telemetry disable`, `SOCIAL_SDK_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1`. It is always off in CI. See [CLI telemetry](https://social-sdk.dev/docs/reference/telemetry). The SDK library sends no telemetry.
+The `social-sdk` CLI never contacts a social platform. It does not authenticate accounts, upload media, or publish content. While telemetry is enabled, it sends one best-effort anonymous usage event per command (command, adapter, SDK version, runtime and OS) after a one-time notice, and the `telemetry` command itself sends nothing; turn that off with `social-sdk telemetry disable`, `SOCIAL_SDK_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1`. It is also off when a recognized CI variable such as `CI` holds a value that is non-empty after trimming and is not `0`, `false`, `no` or `off` in any letter case; on other runners, including ones that set these variables only to `0`, `false`, `no`, `off` or a blank value, set `SOCIAL_SDK_TELEMETRY_DISABLED=1`. See [CLI telemetry](https://social-sdk.dev/docs/reference/telemetry). The SDK library sends no telemetry.
 
 The package installs the binary into your project's `node_modules/.bin`, which is not on your shell `PATH`. After installing `@opencoredev/social-sdk`, run it from that project directory with `npm exec`, or replace `npm exec --` with `bun run` under Bun:
 

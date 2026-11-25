@@ -7,6 +7,8 @@ import type { Guide } from "./guides";
 
 const fetched = "1 November 2026";
 
+const reread = "25 November 2026";
+
 const yt = "https://developers.google.com/youtube/v3";
 
 const videosInsert = `${yt}/docs/videos/insert`;
@@ -20,6 +22,16 @@ const resumable = `${yt}/guides/using_resumable_upload_protocol`;
 const uploadGuide = `${yt}/guides/uploading_a_video`;
 
 const revisionHistory = `${yt}/revision_history`;
+
+const thumbnailsSet = `${yt}/docs/thumbnails/set`;
+
+const videosList = `${yt}/docs/videos/list`;
+
+const audits = "https://developers.google.com/youtube/data/guides/quota_and_compliance_audits";
+
+const uploadDefaults = "https://support.google.com/youtube/answer/2660027";
+
+const privacyHelp = "https://support.google.com/youtube/answer/157177";
 
 const serverSideAuth = `${yt}/guides/auth/server-side-web-apps`;
 
@@ -116,7 +128,7 @@ export const youtubeUploadApi: Guide = {
   heading: "The YouTube upload API, explained",
   lede: "To upload a video from code, send a <code>POST</code> to <code>/upload/youtube/v3/videos</code> on <code>www.googleapis.com</code> (the YouTube Data API's <code>videos.insert</code> method) with an OAuth access token that has the <code>youtube.upload</code> scope. Use the resumable protocol: one request sends the video's metadata and returns a session URI, and the file goes to that URI in one or more <code>PUT</code> requests. Since June 2026 uploads have their own quota bucket: a project gets 100 <code>videos.insert</code> calls a day by default, and each costs 1 unit.",
   published: "2026-11-01",
-  updated: "2026-11-01",
+  updated: "2026-11-25",
   content: `
           <h2 id="videos-insert">What videos.insert does</h2>
           <p>
@@ -133,6 +145,7 @@ export const youtubeUploadApi: Guide = {
               <tr><td><code>snippet</code></td><td><code>title</code>, <code>description</code>, <code>tags[]</code>, <code>categoryId</code>, <code>defaultLanguage</code></td></tr>
               <tr><td><code>status</code></td><td><code>privacyStatus</code>, <code>publishAt</code>, <code>selfDeclaredMadeForKids</code>, <code>containsSyntheticMedia</code>, <code>embeddable</code>, <code>license</code>, <code>publicStatsViewable</code></td></tr>
               <tr><td>Other</td><td><code>localizations</code>, <code>recordingDetails.recordingDate</code></td></tr>
+              <tr><td><code>paidProductPlacementDetails</code></td><td><code>hasPaidProductPlacement</code> (from Google's 16 November 2026 release note; see below)</td></tr>
             </tbody>
           </table>
           <p>
@@ -142,8 +155,22 @@ export const youtubeUploadApi: Guide = {
             once. There is no Shorts flag: the request is the same for any video.
           </p>
           <p>
-            If you leave out <code>privacyStatus</code>, the video is public, although some
-            channel settings make uploads private by default. To schedule a release, upload with
+            One default changed on 16 November 2026:
+            <code>paidProductPlacementDetails.hasPaidProductPlacement</code> no longer defaults to
+            <code>false</code>. If a <code>videos.insert</code> or <code>videos.update</code>
+            request leaves it out, the video isn't declared as free of paid product placement
+            (<a href="${revisionHistory}">revision history</a>). To declare that a video has none,
+            add <code>paidProductPlacementDetails</code> to <code>part</code> and send
+            <code>"paidProductPlacementDetails": { "hasPaidProductPlacement": false }</code>. The
+            <code>videos.insert</code> reference doesn't list this field among the settable ones
+            yet; the <a href="${videosResource}">videos resource</a> documents it. The
+            <a href="/docs/platforms/youtube">Social SDK YouTube adapter</a> doesn't send it in
+            0.5.0.
+          </p>
+          <p>
+            If you leave out <code>privacyStatus</code>, the video is public, although a
+            creator's account settings can make some uploads private (Google's revision note
+            points to its <a href="${privacyHelp}">video privacy settings help page</a>). To schedule a release, upload with
             <code>privacyStatus</code> set to <code>private</code> and an ISO 8601
             <code>publishAt</code> time, and YouTube makes the video public at that time.
           </p>
@@ -158,7 +185,7 @@ export const youtubeUploadApi: Guide = {
           <table>
             <thead><tr><th>Scope</th><th>What else it allows</th></tr></thead>
             <tbody>
-              <tr><td><code>youtube.upload</code></td><td>Nothing else: upload only. Ask for this one if uploading is all you do.</td></tr>
+              <tr><td><code>youtube.upload</code></td><td>The narrowest scope for uploading videos and setting custom thumbnails (<code>thumbnails.set</code>). Ask for this one if uploading is all you do.</td></tr>
               <tr><td><code>youtube</code></td><td>Full management of the channel</td></tr>
               <tr><td><code>youtube.force-ssl</code></td><td>Full management, including comments and captions</td></tr>
               <tr><td><code>youtubepartner</code></td><td>YouTube content partner (CMS) access</td></tr>
@@ -199,14 +226,18 @@ export const youtubeUploadApi: Guide = {
             Extension Form, which Google pairs with an API compliance audit.
           </p>
           <p>
-            A note on private uploads: in 2020 Google said videos uploaded through
-            <code>videos.insert</code> from unverified API projects created after 28 July 2020
-            would be locked to private until the project passed an audit
-            (<a href="${revisionHistory}">revision history</a>). The current
-            <code>videos.insert</code> reference, last updated 15 October 2026, says videos from
-            unverified projects are not restricted to private viewing mode. If your public
-            uploads come out private, check the project's audit status and the channel's default
-            upload settings.
+            Unverified projects can upload public videos again. On 2 November 2026 Google
+            reversed its 28 July 2020 policy, which locked videos uploaded from unverified API
+            projects created after that date to private until the project passed an audit
+            (<a href="${revisionHistory}">revision history</a>). Google's
+            <a href="${audits}">quota and compliance audits guide</a> now says you don't need an
+            audit to upload <code>public</code> or <code>unlisted</code> videos within your default
+            quota. Tutorials that tell you to pass an audit first were written before the change.
+            If an upload still comes out private, compare the <code>status.privacyStatus</code> you
+            sent with the one in the response. The channel's
+            <a href="${uploadDefaults}">upload defaults</a> apply only to uploads made in a browser
+            on youtube.com, not to API uploads, so check the account-level privacy rules on the
+            help page linked above.
           </p>
 
           <h2 id="resumable">Resumable uploads, step by step</h2>
@@ -277,7 +308,8 @@ export const youtubeUploadApi: Guide = {
           <h2 id="social-sdk">Uploading to YouTube from TypeScript with Social SDK</h2>
           <p>
             <a href="/">Social SDK</a> is an open-source TypeScript library whose YouTube adapter
-            runs the resumable protocol above inside one <code>posts.publish</code> call. You pass
+            runs the resumable protocol above inside one
+            <a href="/docs/publishing"><code>posts.publish</code> call</a>. You pass
             the video, a title, a visibility, and the made-for-kids declaration (the adapter
             requires both explicitly). It starts the session, hands the session to your
             <code>saveUploadSession</code> callback before sending any bytes, uploads in 8 MiB
@@ -304,14 +336,17 @@ export const youtubeUploadApi: Guide = {
             <code>&lt;</code> and <code>&gt;</code> in titles, and doesn't set tags or a category.
             Pass <code>schedule: { at: "2026-12-01T15:00:00Z" }</code> to
             <code>posts.publish</code>, next to <code>targets</code>, and it uploads the video
-            private with that <code>publishAt</code> time.
+            private with that <code>publishAt</code> time. If your own queue should decide when
+            the upload runs, the <a href="/docs/integrations/inngest">Inngest recipe</a> and the
+            <a href="/docs/integrations/nextjs">Next.js recipe</a> call <code>posts.publish</code>
+            from a background job.
           </p>
           <p>
             The adapter takes an existing access token and doesn't refresh it. The SDK's
             <code>youtubeOAuth</code> server helper handles Google's authorization code flow and
             channel discovery (<a href="/docs/authentication">authentication guide</a>).
             Resuming a saved session, thumbnails, captions, playlists, comments, and analytics are
-            on the <a href="/docs/platforms/youtube">YouTube platform page</a>. To build without a
+            on the YouTube platform page. To build without a
             Google project at all, start with the
             <a href="/docs/getting-started/mock-quickstart">mock quickstart</a>. The same client
             can post to X, Bluesky, LinkedIn, and the other
@@ -340,7 +375,22 @@ export const youtubeUploadApi: Guide = {
             <dt>How do I upload a YouTube Short with the API?</dt>
             <dd>
               With the same <code>videos.insert</code> call. The request has no Shorts field, so
-              a Short goes up like any other video.
+              a Short goes up like any other video. Since 3 November 2026
+              <code>thumbnails.set</code> can also set a custom thumbnail on a Short; call it after
+              <code>processingDetails.processingStatus</code> is <code>succeeded</code>, or the
+              thumbnail might not be applied. Reading <code>processingDetails</code> with
+              <a href="${videosList}"><code>videos.list</code></a> needs the owner's token with a
+              read-capable scope such as <code>youtube.readonly</code>; <code>youtube.upload</code>
+              alone can't call it, though it can call <code>thumbnails.set</code>. The account also
+              needs permission to set custom thumbnails; without it, <code>thumbnails.set</code>
+              returns <code>403 forbidden</code>.
+            </dd>
+            <dt>Do I need an API audit to upload public videos?</dt>
+            <dd>
+              Not since 2 November 2026, as long as you stay within the default quota. Videos from
+              unverified projects are no longer locked to private, so <code>public</code> and
+              <code>unlisted</code> uploads work without an API Compliance Audit. Google still
+              pairs a request for more than 100 uploads a day with that audit.
             </dd>
             <dt>Can I upload a video from a URL?</dt>
             <dd>
@@ -355,14 +405,18 @@ export const youtubeUploadApi: Guide = {
           </dl>
 
           <h2 id="sources">Sources</h2>
-          <p>Google's YouTube Data API and identity pages, read on ${fetched}, with the update date each page showed:</p>
+          <p>Google's YouTube Data API and identity pages, read on ${fetched} (those marked "rechecked" read again on ${reread}), with the update date each page showed:</p>
           <ul>
-            <li><a href="${videosInsert}">Videos: insert</a> (updated 15 October 2026): endpoint, file limits, scopes, writable fields, quota, default privacy</li>
+            <li><a href="${videosInsert}">Videos: insert</a> (rechecked; updated 23 November 2026): endpoint, file limits, scopes, writable fields, quota, default privacy, no private lock for unverified projects</li>
+            <li><a href="${audits}">Quota and compliance audits</a> (rechecked on ${reread}): no audit needed for public or unlisted uploads within the default quota</li>
+            <li><a href="${videosList}">Videos: list</a> (rechecked on ${reread}): <code>processingDetails</code> only for the owner; scopes</li>
+            <li><a href="${uploadDefaults}">Set default upload settings</a> (YouTube Help, read ${reread}): defaults apply only to browser uploads</li>
             <li><a href="${quotaCost}">Quota costs</a> (updated 15 October 2026): default allocations, reset time, per-method costs</li>
             <li><a href="${resumable}">Resumable uploads</a> (updated 15 October 2026): session, status check, resume, chunk rules</li>
             <li><a href="${uploadGuide}">Upload a video</a> (updated 15 October 2026): <code>youtube.upload</code> scope, client library sample</li>
-            <li><a href="${videosResource}">Videos resource</a> (updated 15 October 2026): <code>uploadStatus</code>, <code>processingDetails</code></li>
-            <li><a href="${revisionHistory}">Revision history</a> (updated 15 October 2026): granular quota (1 June 2026), videos.batchGetStats bucket (3 June 2026), upload cost change (4 December 2025), 2020 private-upload note</li>
+            <li><a href="${videosResource}">Videos resource</a> (rechecked; updated 23 November 2026): <code>uploadStatus</code>, <code>processingDetails</code>, <code>paidProductPlacementDetails</code></li>
+            <li><a href="${revisionHistory}">Revision history</a> (rechecked; updated 24 November 2026): granular quota (1 June 2026), videos.batchGetStats bucket (3 June 2026), upload cost change (4 December 2025), end of the 2020 private-upload lock (2 November 2026), Shorts thumbnails (3 November 2026), paid product placement default (16 November 2026)</li>
+            <li><a href="${thumbnailsSet}">Thumbnails: set</a> (rechecked; updated 12 November 2026): custom thumbnails on Shorts after processing</li>
             <li><a href="${serverSideAuth}">OAuth 2.0 for web server apps</a> (updated 30 October 2026): offline access</li>
             <li><a href="${ytAuth}">Implementing OAuth 2.0 authorization</a> (updated 15 October 2026): service accounts only for content owners</li>
             <li><a href="${oauth}">Using OAuth 2.0 to access Google APIs</a> (updated 29 October 2026): 7-day refresh tokens in Testing</li>

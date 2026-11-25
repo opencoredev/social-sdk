@@ -1,6 +1,7 @@
 import { normalizeMetrics } from "../core/projections.js";
 import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
+import { publicPostUrl } from "./outcomes.js";
 
 export {
   MemoryManagedMediaStore,
@@ -1651,7 +1652,8 @@ export function postiz(options: PostizOptions) {
     target: ConnectedAccountRef,
     targetIndex: number,
   ): DeliveryOutcome => {
-    const state = optionalString(row["state"]) ?? "unknown";
+    const rawState = row["state"];
+    const state = optionalString(rawState) ?? "unknown";
 
     const delivery: DeliveryRef = {
       kind: "delivery",
@@ -1662,7 +1664,18 @@ export function postiz(options: PostizOptions) {
       deliveryId: id,
     };
 
-    const base = { targetIndex, account: target, delivery, backendState: state, observedAt: now() };
+    const base = {
+      targetIndex,
+      account: target,
+      delivery,
+      backendState:
+        rawState === undefined || rawState === null
+          ? "unknown"
+          : isString(rawState) && /^[A-Za-z_]{1,32}$/.test(rawState)
+            ? rawState
+            : "unrecognized",
+      observedAt: now(),
+    };
 
     switch (state) {
       case "QUEUE": {
@@ -1694,7 +1707,7 @@ export function postiz(options: PostizOptions) {
 
       case "PUBLISHED": {
         const postId = optionalString(row["releaseId"]);
-        const url = optionalString(row["releaseURL"]);
+        const url = publicPostUrl(row["releaseURL"]);
 
         // TikTok can publish without returning an ID; Postiz stores "missing" until resolved.
         if (!postId || postId === "missing")
@@ -1718,7 +1731,7 @@ export function postiz(options: PostizOptions) {
             postId,
             native: { backendRecordId: id },
           },
-          ...definedFields({ url: url || undefined }),
+          ...definedFields({ url }),
         };
       }
 

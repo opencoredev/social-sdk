@@ -374,24 +374,33 @@ export function capabilityManifest(
     backend,
     apiRevision,
     runtime: ["node22", "node24", "bun"],
-    capabilities: providerPlatforms[backend].flatMap((platform) =>
-      operations.map((operation) => ({
-        platform,
-        operation,
-        availability: "available" as const,
-        surface: "normalized" as const,
-        ...definedFields({
-          formats: operation === "posts.publish" ? formats(platform) : undefined,
-          constraints: constraintsFor(platform, operation),
-        }),
-        notes: [
-          "Contract implementation; live account verification and provider/platform eligibility are separate.",
-          platformNotes[platform],
-        ]
-          .filter((value): value is string => value !== undefined)
-          .join(" "),
-      })),
-    ),
+    capabilities: [
+      {
+        platform: "*",
+        operation: "accounts.read",
+        availability: "available",
+        surface: "normalized",
+        constraints: { approval: managedApproval },
+      },
+      ...providerPlatforms[backend].flatMap((platform) =>
+        operations.map((operation) => ({
+          platform,
+          operation,
+          availability: "available" as const,
+          surface: "normalized" as const,
+          ...definedFields({
+            formats: operation === "posts.publish" ? formats(platform) : undefined,
+            constraints: constraintsFor(platform, operation),
+          }),
+          notes: [
+            "Contract implementation; live account verification and provider/platform eligibility are separate.",
+            platformNotes[platform],
+          ]
+            .filter((value): value is string => value !== undefined)
+            .join(" "),
+        })),
+      ),
+    ],
   };
 }
 
