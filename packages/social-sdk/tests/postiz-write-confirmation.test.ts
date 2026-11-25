@@ -220,6 +220,30 @@ for (const write of writes) {
   });
 }
 
+it("Postiz delivery outcomes keep only a credential-free HTTPS link and a token state", async () => {
+  for (const releaseURL of ["http://x.com/i/1", "https://user:secret@x.com/i/1", leak]) {
+    const { adapter } = fakePostiz(
+      null,
+      row({ state: "PUBLISHED", releaseId: "native1", releaseURL }),
+    );
+
+    const outcome = await adapter.posts.getDelivery(delivery, context);
+
+    assert.equal(outcome.state, "published", releaseURL);
+    assert.equal(outcome.state === "published" ? outcome.url : "missing", undefined, releaseURL);
+    assert.equal(outcome.backendState, "PUBLISHED");
+  }
+
+  for (const state of [leak, 7, { leak }]) {
+    const { adapter } = fakePostiz(null, row({ state }));
+    const outcome = await adapter.posts.getDelivery(delivery, context);
+
+    assert.equal(outcome.state, "unknown");
+    assert.equal(outcome.backendState, "unrecognized");
+    assert.doesNotMatch(JSON.stringify(outcome), /private-marker|signature|cdn\.example/);
+  }
+});
+
 it("Postiz failed-post outcomes never copy the platform's error prose or links", async () => {
   const { adapter } = fakePostiz(null, row({ state: "ERROR", error: leak }));
   const outcome = await adapter.posts.getDelivery(delivery, context);

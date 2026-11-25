@@ -44,7 +44,7 @@ function statusToken(value: JsonField): string {
 }
 
 /** A published post's public link: an absolute HTTPS URL without credentials, else dropped. */
-function publicPostUrl(value: JsonField): string | undefined {
+export function publicPostUrl(value: JsonField): string | undefined {
   if (!isString(value) || !URL.canParse(value)) return undefined;
   const url = new URL(value);
 

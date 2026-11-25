@@ -1101,6 +1101,36 @@ describe("revoke", () => {
     assert.deepEqual((await h.store.get("a"))?.value, reconnected);
   });
 
+  test("a provider rejection from the revoke hook keeps its code, retry and HTTP status", async () => {
+    const h = harness();
+
+    const manager = h.manager({
+      revoke: async () => {
+        throw new SocialError({
+          code: "rate_limited",
+          operation: "x.revoke",
+          message: `token=${secretAccess}`,
+          upstreamStatus: 429,
+          retryDisposition: { kind: "after-delay", delayMs: 5_000 },
+        });
+      },
+    });
+
+    await manager.save("a", expiring);
+
+    await assert.rejects(manager.revoke("a"), (error: unknown): error is SocialError => {
+      assert.ok(error instanceof SocialError);
+      assert.equal(error.code, "rate_limited");
+      assert.equal(error.operation, "credentials.revoke");
+      assert.equal(error.upstreamStatus, 429);
+      assert.deepEqual(error.retryDisposition, { kind: "after-delay", delayMs: 5_000 });
+      assert.ok(!error.message.includes(secretAccess));
+
+      return true;
+    });
+    assert.deepEqual((await h.store.get("a"))?.value, expiring);
+  });
+
   test("a failing revoke hook throws a sanitized error and keeps the credential", async () => {
     const h = harness();
 

@@ -638,6 +638,73 @@ it("preserves terminal X usage caps during media STATUS polling", async () => {
   assert.equal(statusCalls, 1);
 });
 
+it("maps HTTP 402 during media STATUS polling to billing_required", async () => {
+  let statusCalls = 0;
+
+  const adapter = x({
+    auth,
+    fetch: async (input) => {
+      const path = new URL(String(input)).pathname;
+
+      if (path.endsWith("/append")) return new Response(null, { status: 204 });
+
+      if (path.endsWith("/initialize")) return Response.json({ data: { id: "123" } });
+
+      if (path.endsWith("/finalize"))
+        return Response.json({
+          data: { id: "123", processing_info: { state: "pending", check_after_secs: 0 } },
+        });
+      statusCalls++;
+
+      return Response.json({ title: "CreditsDepleted" }, { status: 402 });
+    },
+  });
+
+  assert.ok(adapter.native);
+  await assert.rejects(
+    adapter.native.uploadVideo({ account, video: new Blob(["fixture"]), context }),
+    (error: Error) => {
+      assert.ok(error instanceof SocialError);
+      assert.equal(error.code, "billing_required");
+      assert.equal(error.upstreamStatus, 402);
+      assert.equal(error.upstreamCode, undefined);
+      assert.deepEqual(error.retryDisposition, { kind: "never" });
+      assert.deepEqual(error.details, { mediaId: "123" });
+
+      return true;
+    },
+  );
+  assert.equal(statusCalls, 1);
+});
+
+it("prepares and sends an X reply to another author's post", async () => {
+  const sent: unknown[] = [];
+
+  const adapter = x({
+    auth,
+    fetch: async (_input, init) => {
+      sent.push(JSON.parse(String(init?.body)));
+
+      return Response.json({ data: { id: "9", text: "reply" } }, { status: 201 });
+    },
+  });
+
+  const social = createSocial({ backend: adapter });
+
+  const request = {
+    targets: [{ account }],
+    content: { text: "reply" },
+    replyTo: platformPostRef({ backend: "default", platform: "x", accountId: "2", postId: "42" }),
+    idempotencyKey: "cross-author-reply",
+  };
+
+  const plan = social.posts.prepare(request);
+
+  assert.equal(plan.ok, true, JSON.stringify(plan.issues));
+  await social.posts.publish(request);
+  assert.deepEqual(sent, [{ text: "reply", reply: { in_reply_to_tweet_id: "42" } }]);
+});
+
 it("retains the finalized media ID when STATUS transport or response parsing fails", async () => {
   for (const failure of ["http", "network", "malformed"]) {
     let statusCalls = 0;

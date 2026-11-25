@@ -74,5 +74,5 @@
     "vite@>=8.3.0 <8.3.8": "8.3.8",
     "zod@>=4.0.0 <4.6.6": "4.6.7"
   },
-  "packageManager": "bun@1.4.2"
+  "packageManager": "bun@1.4.4"
 }

@@ -7,7 +7,7 @@ These instructions apply to this repository.
 - Public package: `@opencoredev/social-sdk`
 - Package directory: `packages/social-sdk`
 - Documentation application: `apps/docs`
-- Package manager: Bun 1.4.2
+- Package manager: Bun 1.4.4
 - Supported SDK targets begin with Node.js 22.12+, Node.js 24, and Bun.
 
 The SDK supports direct social-platform integrations and optional managed backends. It must not require a hosted Social SDK service, database, queue, UI framework, or telemetry service. Keep platform, backend, content format, and capability as separate concepts.
