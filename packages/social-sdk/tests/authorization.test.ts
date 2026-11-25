@@ -98,6 +98,32 @@ it("keeps analytics account metrics compatible with analytics.read policies", as
     backend: mock,
     authorization: {
       async authorizeTargets({ operation, accounts }) {
+        if (operation !== "analytics.read") return [];
+
+        return accounts.map((candidate) => ({ account: candidate, allowed: true }));
+      },
+    },
+  });
+
+  await social.analytics.getAccountMetrics(
+    connectedAccountRef({ backend: "default", platform: "x", accountId: "mock-account-1" }),
+  );
+});
+
+it("an explicit analytics.account.read denial is not overridden by analytics.read", async () => {
+  let calls = 0;
+
+  const social = createSocial({
+    backend: zernio({
+      apiKey: "test",
+      fetch: async () => {
+        calls++;
+
+        return Response.json({});
+      },
+    }),
+    authorization: {
+      async authorizeTargets({ operation, accounts }) {
         return accounts.map((candidate) => ({
           account: candidate,
           allowed: operation === "analytics.read",
@@ -106,9 +132,46 @@ it("keeps analytics account metrics compatible with analytics.read policies", as
     },
   });
 
-  await social.analytics.getAccountMetrics(
-    connectedAccountRef({ backend: "default", platform: "x", accountId: "mock-account-1" }),
+  await assert.rejects(
+    social.analytics.getAccountMetrics(account),
+    (error: unknown): error is Error =>
+      error instanceof Error && "code" in error && error.code === "unauthorized",
   );
+  assert.equal(calls, 0);
+});
+
+it("a denial for the account wins over an allow for the same account in either order", async () => {
+  for (const allowedFirst of [true, false]) {
+    let calls = 0;
+
+    const social = createSocial({
+      backend: zernio({
+        apiKey: "test",
+        fetch: async () => {
+          calls++;
+
+          return Response.json({});
+        },
+      }),
+      authorization: {
+        async authorizeTargets({ accounts }) {
+          const conflicting = accounts.flatMap((candidate) =>
+            [allowedFirst, !allowedFirst].map((allowed) => ({ account: candidate, allowed })),
+          );
+
+          return [{ account: { ...account, accountId: "other" }, allowed: true }, ...conflicting];
+        },
+      },
+    });
+
+    await assert.rejects(
+      social.analytics.getAccountMetrics(account),
+      (error: unknown): error is Error =>
+        error instanceof Error && "code" in error && error.code === "unauthorized",
+    );
+    await assert.rejects(social.posts.get(post));
+    assert.equal(calls, 0);
+  }
 });
 
 it("mixed-backend account discovery requires an explicit backend and cannot choose an arbitrary first key", async () => {

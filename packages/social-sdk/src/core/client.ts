@@ -890,18 +890,24 @@ export function createSocial(
     account: ConnectedAccountRef,
     options: PublishCallOptions | undefined,
     correlationId: string,
+    fallback?: import("./types.js").OperationName,
   ): Promise<void> {
     if (config.authorization === undefined) return;
 
-    const decision = (
+    const decisions = (
       await config.authorization.authorizeTargets({
         operation,
         accounts: [account],
         context: makeContext("*", correlationId, options),
       })
-    )[0];
+    ).filter((candidate) => targetKey(candidate.account) === targetKey(account));
 
-    if (decision?.allowed !== true || targetKey(decision.account) !== targetKey(account)) {
+    if (decisions.length === 0 && fallback !== undefined)
+      return authorizeRef(fallback, account, options, correlationId);
+
+    const decision = decisions.find((candidate) => candidate.allowed !== true) ?? decisions[0];
+
+    if (decision?.allowed !== true) {
       throw new SocialError({
         code: "unauthorized",
         operation,
@@ -909,21 +915,6 @@ export function createSocial(
         account,
         correlationId,
       });
-    }
-  }
-
-  async function authorizeRefWithFallback(
-    operation: import("./types.js").OperationName,
-    fallback: import("./types.js").OperationName,
-    account: ConnectedAccountRef,
-    options: PublishCallOptions | undefined,
-    correlationId: string,
-  ): Promise<void> {
-    try {
-      await authorizeRef(operation, account, options, correlationId);
-    } catch (error) {
-      if (!(error instanceof SocialError) || error.code !== "unauthorized") throw error;
-      await authorizeRef(fallback, account, options, correlationId);
     }
   }
 
@@ -2509,12 +2500,12 @@ export function createSocial(
     ): Promise<readonly MetricValue[]> {
       validateAccountRef(ref, "analytics.account.read");
       const correlationId = `social-${++correlationSequence}`;
-      await authorizeRefWithFallback(
+      await authorizeRef(
         "analytics.account.read",
-        "analytics.read",
         ref,
         callOptions,
         correlationId,
+        "analytics.read",
       );
       const adapter = selected(ref, "analytics.getAccountMetrics");
       requireCapability(adapter, "analytics.account.read", ref.platform, ref.backend);
