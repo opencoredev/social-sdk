@@ -17,7 +17,7 @@ export SOCIAL_SDK_TELEMETRY_DISABLED=1
 export DO_NOT_TRACK=1
 ```
 
-Telemetry is also off whenever a CI environment variable is set, such as `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `BUILDKITE`, `JENKINS_URL` or `TF_BUILD`. A value of `0`, `false`, `no` or `off` counts as unset, so `DO_NOT_TRACK=0` leaves telemetry on.
+Telemetry is also off whenever a recognized CI environment variable is set, such as `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `BUILDKITE`, `JENKINS_URL` or `TF_BUILD`. On a runner that sets none of them, set `SOCIAL_SDK_TELEMETRY_DISABLED=1`. A value of `0`, `false`, `no` or `off` counts as unset, so `DO_NOT_TRACK=0` leaves telemetry on.
 
 `social-sdk telemetry status --json` reports whether telemetry is on and why it is off. `social-sdk telemetry enable` turns it back on, unless an environment variable above still disables it. The `telemetry` command itself never sends an event.
 

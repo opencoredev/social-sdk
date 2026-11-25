@@ -74,7 +74,7 @@ Read the [platform capability matrix](https://social-sdk.dev/docs/reference/capa
 
 ## CLI
 
-The `social-sdk` CLI never contacts a social platform. It does not authenticate accounts, upload media, or publish content. It sends one anonymous usage event per command (command, adapter, SDK version, runtime and OS) after a one-time notice; turn that off with `social-sdk telemetry disable`, `SOCIAL_SDK_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1`. It is always off in CI. See [CLI telemetry](https://social-sdk.dev/docs/reference/telemetry). The SDK library sends no telemetry.
+The `social-sdk` CLI never contacts a social platform. It does not authenticate accounts, upload media, or publish content. It sends one anonymous usage event per command (command, adapter, SDK version, runtime and OS) after a one-time notice; turn that off with `social-sdk telemetry disable`, `SOCIAL_SDK_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1`. It is also off when a recognized CI variable such as `CI` is set to a non-empty value other than `0`, `false`, `no` or `off`; on other runners, set `SOCIAL_SDK_TELEMETRY_DISABLED=1`. See [CLI telemetry](https://social-sdk.dev/docs/reference/telemetry). The SDK library sends no telemetry.
 
 The package installs the binary into your project's `node_modules/.bin`, which is not on your shell `PATH`. After installing `@opencoredev/social-sdk`, run it from that project directory with `npm exec`, or replace `npm exec --` with `bun run` under Bun:
 
