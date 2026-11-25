@@ -1675,7 +1675,7 @@ test("the in-memory workflow store caps admissions and expires only settled work
   const workflowStore = new MemoryPinterestWorkflowStore({
     maxWorkflows: 2,
     retentionMs: 1000,
-    clock: () => new Date(time),
+    now: () => time,
   });
 
   const row = (stage: "processing" | "creating") => ({
@@ -1706,4 +1706,51 @@ test("the in-memory workflow store caps admissions and expires only settled work
   await assert.rejects(workflowStore.create(row("processing")));
   assert.equal((await workflowStore.get(pending.id))?.stage, "creating");
   assert.equal((await workflowStore.get(next.id))?.stage, "processing");
+});
+
+test("settled workflows expire on lookup, and a published row without a Pin ID is kept", async () => {
+  let time = 0;
+  const workflowStore = new MemoryPinterestWorkflowStore({ retentionMs: 10, now: () => time });
+
+  const row = {
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "processing" as const,
+  };
+
+  const confirmed = await workflowStore.create(row);
+  const unconfirmed = await workflowStore.create(row);
+  const claimed = await workflowStore.create(row);
+
+  await workflowStore.update(confirmed.id, { stage: "published", pinId: "1" });
+  await workflowStore.update(unconfirmed.id, { stage: "published" });
+  await workflowStore.update(claimed.id, { stage: "failed" });
+  assert.equal(await workflowStore.claim(claimed.id), true);
+
+  time = 10;
+  assert.equal(await workflowStore.get(confirmed.id), undefined);
+  assert.equal((await workflowStore.get(unconfirmed.id))?.stage, "published");
+  assert.equal((await workflowStore.get(claimed.id))?.stage, "failed");
+});
+
+test("memory limits must be safe integers in range", () => {
+  for (const options of [
+    { maxWorkflows: Number.NaN },
+    { maxWorkflows: Number.POSITIVE_INFINITY },
+    { maxWorkflows: 0 },
+    { retentionMs: -1 },
+    { retentionMs: 1.5 },
+  ])
+    assert.throws(
+      () => new MemoryPinterestWorkflowStore(options),
+      (error) => error instanceof SocialError && error.code === "invalid_config",
+    );
+
+  for (const maxBase64Bytes of [Number.NaN, Number.POSITIVE_INFINITY, 0])
+    assert.throws(
+      () => client(route({}).fetch, { imageBase64: true, maxBase64Bytes }),
+      (error) => error instanceof SocialError && error.code === "invalid_config",
+    );
 });

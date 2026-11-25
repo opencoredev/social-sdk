@@ -176,17 +176,36 @@ export interface PinterestWorkflowStore {
 
 export interface MemoryPinterestWorkflowStoreOptions {
   /**
-   * Workflows held at once. `create` throws at the cap, so the video is not uploaded.
-   * Defaults to 1,000.
+   * Workflows held at once, a positive safe integer. `create` throws at the cap, so the video
+   * is not uploaded. Defaults to 1,000.
    */
   readonly maxWorkflows?: number;
   /**
-   * How long a `published` or `failed` workflow stays readable after it settles, in
-   * milliseconds. Expired rows are removed on the next `create`. Workflows that are still
-   * `processing` or `creating` are never removed. Defaults to 24 hours.
+   * How long a settled workflow (`failed`, or `published` with a `pinId`) stays readable,
+   * in milliseconds from when it settled: a non-negative safe integer. An expired row is
+   * removed, with its Pin body, by the next `create` or `get`. Workflows still `processing`
+   * or `creating`, and claimed rows, are never removed. Defaults to 24 hours.
    */
   readonly retentionMs?: number;
-  readonly clock?: () => Date;
+  /** Monotonic milliseconds for the retention window. Defaults to `performance.now()`. */
+  readonly now?: () => number;
+}
+
+function settledWorkflow(row: PinterestVideoWorkflow): boolean {
+  return row.stage === "failed" || (row.stage === "published" && row.pinId !== undefined);
+}
+
+function storeLimit(value: number | undefined, fallback: number, minimum: number): number {
+  if (value === undefined) return fallback;
+
+  if (!Number.isSafeInteger(value) || value < minimum)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "createAdapter",
+      message: `Pinterest size and retention limits must be safe integers of at least ${String(minimum)}.`,
+    });
+
+  return value;
 }
 
 /**
@@ -199,35 +218,45 @@ export class MemoryPinterestWorkflowStore implements PinterestWorkflowStore {
   private readonly settledAt = new Map<string, number>();
   private readonly maxWorkflows: number;
   private readonly retentionMs: number;
-  private readonly clock: () => Date;
+  private readonly now: () => number;
 
   constructor(options: MemoryPinterestWorkflowStoreOptions = {}) {
-    this.maxWorkflows = options.maxWorkflows ?? 1000;
-    this.retentionMs = options.retentionMs ?? 24 * 60 * 60 * 1000;
-    this.clock = options.clock ?? (() => new Date());
+    this.maxWorkflows = storeLimit(options.maxWorkflows, 1000, 1);
+    this.retentionMs = storeLimit(options.retentionMs, 24 * 60 * 60 * 1000, 0);
+    this.now = options.now ?? (() => globalThis.performance.now());
   }
 
-  async create(input: Omit<PinterestVideoWorkflow, "id">) {
-    const now = this.clock().getTime();
+  private expire(): void {
+    const now = this.now();
 
     for (const [id, settled] of this.settledAt)
       if (now - settled >= this.retentionMs && !this.claims.has(id)) {
         this.rows.delete(id);
         this.settledAt.delete(id);
       }
+  }
+
+  private save(row: PinterestVideoWorkflow): void {
+    this.rows.set(row.id, structuredClone(row));
+
+    if (!settledWorkflow(row)) this.settledAt.delete(row.id);
+    else if (!this.settledAt.has(row.id)) this.settledAt.set(row.id, this.now());
+  }
+
+  async create(input: Omit<PinterestVideoWorkflow, "id">) {
+    this.expire();
 
     if (this.rows.size >= this.maxWorkflows)
       throw new Error("The in-memory Pinterest workflow store is full");
 
     const row = { ...input, id: `pinwf_${globalThis.crypto.randomUUID()}` };
-    this.rows.set(row.id, structuredClone(row));
-
-    if (row.stage === "published" || row.stage === "failed") this.settledAt.set(row.id, now);
+    this.save(row);
 
     return structuredClone(row);
   }
 
   async get(id: string) {
+    this.expire();
     const row = this.rows.get(id);
 
     return row ? structuredClone(row) : undefined;
@@ -238,10 +267,7 @@ export class MemoryPinterestWorkflowStore implements PinterestWorkflowStore {
 
     if (!row) throw new Error("Pinterest workflow not found");
     const next = { ...row, ...update, id };
-    this.rows.set(id, structuredClone(next));
-
-    if (next.stage !== "published" && next.stage !== "failed") this.settledAt.delete(id);
-    else if (!this.settledAt.has(id)) this.settledAt.set(id, this.clock().getTime());
+    this.save(next);
 
     return structuredClone(next);
   }
@@ -359,7 +385,7 @@ export function pinterest(
 
   const sandbox = options.sandbox === true;
   const imageBase64 = options.imageBase64 === true;
-  const maxBase64Bytes = options.maxBase64Bytes ?? 50 * 1024 * 1024;
+  const maxBase64Bytes = storeLimit(options.maxBase64Bytes, 50 * 1024 * 1024, 1);
 
   const exchange = managedHttpExchange(sandbox ? sandboxOrigin : productionOrigin, {
     apiKey: options.auth.accessToken,
