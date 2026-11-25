@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContext, runInContext } from "node:vm";
 
-import { databuddyScript } from "./analytics";
+import { databuddyScript, posthogScript } from "./analytics";
 
 type Sent = [string, Record<string, string>];
 
@@ -97,6 +97,7 @@ function load(path: string) {
   const sent: Sent[] = [];
 
   const document = {
+    readyState: "loading",
     createElement: (tag: string) => new FakeElement(tag),
     head: { append: (tag: FakeElement) => appended.push(tag) },
     addEventListener: (type: string, listener: Listener) =>
@@ -107,10 +108,15 @@ function load(path: string) {
     document,
     location: new URL(path, "https://social-sdk.dev"),
     Element: FakeElement,
+    addEventListener: () => undefined,
+    sessionStorage: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined },
     URL,
   });
 
   runInContext("window = globalThis;", context);
+  // The head order of a production page: PostHog's snippet, then Databuddy's. The
+  // page never fires load here, so PostHog itself never starts.
+  runInContext(posthogScript, context);
   runInContext(databuddyScript, context);
 
   const tracker = () => appended.find((tag) => tag.src === "/_p/s.js");
@@ -131,10 +137,9 @@ function load(path: string) {
       tracker()?.onload?.();
     },
     failTracker: () => tracker()?.onerror?.(),
-    // The path window.siteTrack takes to Databuddy.
     siteTrack: (event: string, properties: Record<string, string>) =>
       runInContext(
-        `window.databuddySend(${JSON.stringify(event)}, ${JSON.stringify(properties)})`,
+        `window.siteTrack(${JSON.stringify(event)}, ${JSON.stringify(properties)})`,
         context,
       ),
   };
