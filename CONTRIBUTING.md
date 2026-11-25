@@ -8,7 +8,7 @@ For a bug or small fix, open an issue with the [issue form](https://github.com/o
 
 ## Set up
 
-You need [Bun](https://bun.sh) 1.4.2 and Node.js 22.12 or later.
+You need [Bun](https://bun.sh) 1.4.4 and Node.js 22.12 or later.
 
 ```sh
 git clone https://github.com/opencoredev/social-sdk.git
