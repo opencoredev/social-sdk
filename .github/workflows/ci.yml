@@ -22,11 +22,11 @@ jobs:
     # Fork pull requests cannot use the private runner label, so they fall back to GitHub's.
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tenki-standard-medium-4c-8g' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
@@ -37,13 +37,13 @@ jobs:
     # Fork pull requests cannot use the private runner label, so they fall back to GitHub's.
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tenki-standard-medium-4c-8g' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22.12.0
           package-manager-cache: false
@@ -56,13 +56,13 @@ jobs:
     # Fork pull requests cannot use the private runner label, so they fall back to GitHub's.
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tenki-standard-medium-4c-8g' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           package-manager-cache: false
