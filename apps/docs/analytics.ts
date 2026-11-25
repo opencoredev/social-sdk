@@ -70,6 +70,18 @@ const databuddyTags: [src: string, attributes: Record<string, string>][] = [
  *
  * Once the tracker has run, it sends the events window.siteTrack held in
  * `window.databuddyPending` while the tracker was still loading.
+ *
+ * It also reports the site's conversion clicks to Databuddy, where the goals
+ * and funnels for social-sdk.dev count them:
+ *
+ * - `outbound_click` for a link to the GitHub repository or the npm package,
+ *   with `destination` (`github` or `npm`).
+ * - `install_command_copy` for the landing page's install Copy button and for
+ *   any docs code block that installs `@opencoredev/social-sdk`.
+ * - `docs_code_copy` for every docs code block copy, with its `language`.
+ *
+ * Each carries `surface` (`landing`, `docs` or `site`) and the page path. They
+ * never carry the copied text, link query strings, or anything a visitor typed.
  */
 export const databuddyScript = `(() => {
   const tags = ${JSON.stringify(databuddyTags)};
@@ -101,6 +113,52 @@ export const databuddyScript = `(() => {
   };
   load();
   document.addEventListener("astro:page-load", load);
+
+  const send = (event, properties) => {
+    if (window.databuddy) window.databuddy.track(event, properties);
+    else (window.databuddyPending ??= []).push([event, properties]);
+  };
+  const destination = (href) => {
+    try {
+      const url = new URL(href, location.href);
+      if (url.hostname === "github.com" && /^\\/opencoredev\\/social-sdk(\\/|$)/.test(url.pathname))
+        return "github";
+      if (url.hostname === "www.npmjs.com" && url.pathname.startsWith("/package/@opencoredev/social-sdk"))
+        return "npm";
+    } catch {
+      // An href that isn't a URL isn't a conversion link.
+    }
+    return null;
+  };
+  const installsSdk = /\\b(?:npm|pnpm|yarn|bun)\\s+(?:i|install|add)\\b.*@opencoredev\\/social-sdk/;
+  // Blume adds a copy button inside each code block, or to the tab bar of a
+  // tabbed block, where it copies the visible tab's code.
+  const copiedBlock = (button) => {
+    const own = button.closest("pre");
+    if (own) return own;
+    const tabs = button.closest("blume-tabs, blume-panel-tabs");
+    const panels = Array.from(tabs?.querySelector(":scope > [data-blume-tab-content]")?.children ?? []);
+    const visible = panels.find((panel) => !panel.classList.contains("hidden")) ?? panels[0];
+    return visible?.matches("pre") ? visible : (visible?.querySelector("pre") ?? null);
+  };
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!(event.target instanceof Element)) return;
+      const page = location.pathname;
+      const surface = page === "/" ? "landing" : page === "/docs" || page.startsWith("/docs/") ? "docs" : "site";
+      const to = destination(event.target.closest("a[href]")?.getAttribute("href") ?? "");
+      if (to) return send("outbound_click", { destination: to, surface, page });
+      if (event.target.closest('[data-cta="install_copy"]'))
+        return send("install_command_copy", { surface, page });
+      const button = event.target.closest("[data-blume-copy]");
+      if (!button) return;
+      const block = copiedBlock(button);
+      send("docs_code_copy", { surface, page, language: block?.dataset.language ?? "Text" });
+      if (installsSdk.test(block?.textContent ?? "")) send("install_command_copy", { surface, page });
+    },
+    { capture: true },
+  );
 })();`;
 
 const POSTHOG_KEY = "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw";
