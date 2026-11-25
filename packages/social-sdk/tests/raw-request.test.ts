@@ -281,6 +281,25 @@ const managedCases: readonly AdapterCase[] = [
   },
 ];
 
+for (const adapter of managedCases)
+  it(`${adapter.name} native.request rejects credential query parameters`, async () => {
+    for (const name of ["access_token", "API_KEY", "apikey"]) {
+      const { calls, fetch } = recorder();
+
+      const error = await rejection(
+        adapter.send(
+          fetch,
+          { method: "GET", path: "/probe", query: { [name]: "stolen" } },
+          adapter.account,
+          context(),
+        ),
+      );
+
+      assert.equal(error.code, "invalid_input", name);
+      assert.equal(calls.length, 0, name);
+    }
+  });
+
 const escapes: readonly { readonly label: string; readonly input: Probe }[] = [
   { label: "absolute URL", input: { method: "GET", path: "https://evil.example/probe" } },
   { label: "scheme-relative path", input: { method: "GET", path: "//evil.example/probe" } },

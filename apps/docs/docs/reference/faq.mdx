@@ -27,7 +27,7 @@ No. The SDK is server-only because credentials and connected-account references 
 
 ## Can it schedule posts?
 
-Only where the route stores the post and publishes it later. Among direct adapters, only YouTube does; the others reject `schedule` during preparation because their platform APIs have no publish-time field. The managed backends (Zernio, Post for Me, PostFast, Postiz, and Buffer) schedule on the provider side. See [native scheduling](/publishing#native-scheduling-on-direct-adapters).
+Only where the route stores the post and publishes it later. Among direct adapters, only YouTube and Facebook Pages do; the others reject `schedule` during preparation, and the scheduling guide gives each platform's reason. The managed backends (Zernio, Post for Me, PostFast, Postiz, and Buffer) schedule on the provider side. See [native scheduling](/publishing#native-scheduling-on-direct-adapters).
 
 The SDK never runs background jobs itself. To publish later on other routes, run the publish from a job runner such as [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), or [Restate](/integrations/restate).
 

@@ -183,6 +183,12 @@ it("Post for Me, PostFast, Postiz and Buffer list the extra platforms", async ()
     (await buf.accounts.list({ limit: 100 }, context)).items.map((item) => item.ref.platform),
     ["pinterest", "mastodon", "google-business", "whatsapp"],
   );
+
+  // A listed network the backend cannot publish to stays readable through the client.
+  assert.equal(
+    (await createSocial({ backend: buf }).accounts.get(ref("whatsapp", "c3"))).ref.platform,
+    "whatsapp",
+  );
 });
 
 it("unknownPlatforms: include lists unrecognized networks under the provider's identifier", async () => {
@@ -213,6 +219,8 @@ it("unknownPlatforms: include lists unrecognized networks under the provider's i
   assert.equal((await including.accounts.get(ref("slack", "a2"), context)).ref.platform, "slack");
 
   const social = createSocial({ backend: including });
+
+  assert.equal((await social.accounts.get(ref("slack", "a2"))).ref.platform, "slack");
 
   // Publishing needs a platform the backend declares, so an included network stays read-only.
   assert.ok(
