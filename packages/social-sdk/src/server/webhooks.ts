@@ -687,13 +687,13 @@ export async function verifyYouTubeWebhook(input: {
 }
 
 /**
- * Answer the hub's GET verification of intent. The topic must be one the
- * application is currently subscribing to or unsubscribing from; otherwise this
- * throws `not_found`, which WebSub expects as an HTTP 404.
+ * Answer the hub's GET verification of intent. The topic and mode must match a
+ * subscribe or unsubscribe request the application sent and has not yet seen
+ * verified; otherwise this throws `not_found`, which WebSub expects as an HTTP 404.
  */
 export function answerYouTubeWebhookChallenge(input: {
   query: URLSearchParams;
-  topics: readonly string[];
+  pending: readonly { readonly topic: string; readonly mode: "subscribe" | "unsubscribe" }[];
 }): YouTubeWebhookChallengeResponse {
   const mode = input.query.get("hub.mode");
   const topic = input.query.get("hub.topic");
@@ -703,7 +703,7 @@ export function answerYouTubeWebhookChallenge(input: {
   if (
     (mode !== "subscribe" && mode !== "unsubscribe") ||
     !topic ||
-    !input.topics.includes(topic) ||
+    !input.pending.some((intent) => intent.topic === topic && intent.mode === mode) ||
     !challenge ||
     !/^[+\-./0-9=A-Z_a-z]{1,512}$/.test(challenge) ||
     (lease !== null && !/^\d{1,10}$/.test(lease))

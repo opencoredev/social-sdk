@@ -347,19 +347,19 @@ if (uploadStatus.state === "incomplete") {
 
 ### Receive push notifications
 
-YouTube sends new and updated videos through the PubSubHubbub hub. Subscribe with a `hub.secret` and pass the same value as `webhookSecret`; the hub then signs each delivery with `X-Hub-Signature`, and `adapter.webhooks.verify` checks it. Without a secret the hub sends unsigned notifications, so read the video through the API before acting on one. Answer the hub's GET verification with `answerYouTubeWebhookChallenge`, listing the topics you subscribed to. The decoded event lists the videos in `data.videos` with type `unknown`. See [Process webhooks](/events).
+YouTube sends new and updated videos through the PubSubHubbub hub. Subscribe with a `hub.secret` and pass the same value as `webhookSecret`; the hub then signs each delivery with `X-Hub-Signature`, and `adapter.webhooks.verify` checks it. Without a secret the hub sends unsigned notifications, so read the video through the API before acting on one. Answer the hub's GET verification with `answerYouTubeWebhookChallenge`, listing only the subscribe and unsubscribe requests you sent that are still waiting for verification, each with its topic and mode. Remove a request from the list once it is verified or abandoned, so the hub cannot confirm a change you did not ask for. The decoded event lists the videos in `data.videos` with type `unknown`. See [Process webhooks](/events).
 
-POST form fields to `https://pubsubhubbub.appspot.com/subscribe`: `hub.mode=subscribe`, `hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID`, `hub.callback=YOUR_HTTPS_CALLBACK`, `hub.verify=async`, `hub.lease_seconds=86400`, and `hub.secret=YOUR_SERVER_SECRET`. Use the same channel topic when answering the callback challenge:
+POST form fields to `https://pubsubhubbub.appspot.com/subscribe`: `hub.mode=subscribe`, `hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID`, `hub.callback=YOUR_HTTPS_CALLBACK`, `hub.verify=async`, `hub.lease_seconds=86400`, and `hub.secret=YOUR_SERVER_SECRET`. Store each request as pending when you send it, for example `{ topic, mode: "subscribe" }` with that channel topic, and pass the stored list when answering the callback challenge:
 
 ```ts
 import { answerYouTubeWebhookChallenge } from "@opencoredev/social-sdk/server";
 
-function answerHubVerification(callbackUrl: string) {
+type PendingHubRequest = { topic: string; mode: "subscribe" | "unsubscribe" };
+
+function answerHubVerification(callbackUrl: string, pending: readonly PendingHubRequest[]) {
   return answerYouTubeWebhookChallenge({
     query: new URL(callbackUrl).searchParams,
-    topics: [
-      `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`,
-    ],
+    pending,
   });
 }
 ```

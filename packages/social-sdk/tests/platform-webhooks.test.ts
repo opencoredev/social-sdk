@@ -299,7 +299,7 @@ it("verifies YouTube hub signatures with the reported algorithm", async () => {
   );
 });
 
-it("answers YouTube verification of intent only for expected topics", () => {
+it("answers YouTube verification of intent only for pending topic and mode", () => {
   const topic = "https://www.youtube.com/xml/feeds/videos.xml?channel_id=UC_FIXTURE_CHANNEL";
 
   const query = new URLSearchParams({
@@ -309,7 +309,11 @@ it("answers YouTube verification of intent only for expected topics", () => {
     "hub.lease_seconds": "432000",
   });
 
-  const response = answerYouTubeWebhookChallenge({ query, topics: [topic] });
+  const response = answerYouTubeWebhookChallenge({
+    query,
+    pending: [{ topic, mode: "subscribe" }],
+  });
+
   assert.equal(response.body, "fixture-challenge-123");
   assert.equal(response.mode, "subscribe");
   assert.equal(response.leaseSeconds, 432_000);
@@ -321,22 +325,39 @@ it("answers YouTube verification of intent only for expected topics", () => {
     "hub.challenge": "fixture-challenge-456",
   });
 
-  const removed = answerYouTubeWebhookChallenge({ query: unsubscribe, topics: [topic] });
+  const removed = answerYouTubeWebhookChallenge({
+    query: unsubscribe,
+    pending: [{ topic, mode: "unsubscribe" }],
+  });
+
   assert.equal(removed.mode, "unsubscribe");
   assert.equal(removed.leaseSeconds, undefined);
 
+  const subscribing = [{ topic, mode: "subscribe" as const }];
+
   for (const bad of [
-    { topics: ["https://www.youtube.com/xml/feeds/videos.xml?channel_id=OTHER"], query },
     {
-      topics: [topic],
+      pending: [
+        {
+          topic: "https://www.youtube.com/xml/feeds/videos.xml?channel_id=OTHER",
+          mode: "subscribe" as const,
+        },
+      ],
+      query,
+    },
+    { pending: subscribing, query: unsubscribe },
+    { pending: [{ topic, mode: "unsubscribe" as const }], query },
+    { pending: [], query },
+    {
+      pending: subscribing,
       query: new URLSearchParams({ ...Object.fromEntries(query), "hub.mode": "denied" }),
     },
     {
-      topics: [topic],
+      pending: subscribing,
       query: new URLSearchParams({ ...Object.fromEntries(query), "hub.challenge": "<b>" }),
     },
     {
-      topics: [topic],
+      pending: subscribing,
       query: new URLSearchParams({ ...Object.fromEntries(query), "hub.lease_seconds": "-1" }),
     },
   ])
