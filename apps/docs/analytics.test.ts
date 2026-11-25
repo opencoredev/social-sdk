@@ -314,6 +314,8 @@ test("counts only commands that install the package itself as install copies", (
   assert.deepEqual(copies("npm install zod # pairs with @opencoredev/social-sdk"), other);
   assert.deepEqual(copies("bun add zod && echo @opencoredev/social-sdk"), other);
   assert.deepEqual(copies("npm install zod; echo @opencoredev/social-sdk"), other);
+  assert.deepEqual(copies("echo npm install @opencoredev/social-sdk"), other);
+  assert.deepEqual(copies("$ yarn add @opencoredev/social-sdk"), install);
   assert.deepEqual(copies("npm install zod && npm install @opencoredev/social-sdk"), install);
   assert.deepEqual(copies('bun add "@opencoredev/social-sdk@^0.6.0"'), install);
 });

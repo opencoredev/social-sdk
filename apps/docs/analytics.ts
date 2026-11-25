@@ -162,11 +162,12 @@ export const databuddyScript = `(() => {
               .trim()
               .split(/\\s+/)
               .map((word) => word.replace(/^["']|["']$/g, ""));
-            const at = words.findIndex(
-              (word, index) =>
-                /^(?:npm|pnpm|yarn|bun|nub|aube)$/.test(word) && /^(?:i|install|add)$/.test(words[index + 1] ?? ""),
+            if (words[0] === "$") words.shift();
+            return (
+              /^(?:npm|pnpm|yarn|bun|nub|aube)$/.test(words[0] ?? "") &&
+              /^(?:i|install|add)$/.test(words[1] ?? "") &&
+              words.slice(2).some((word) => /^@opencoredev\\/social-sdk(?:@[^\\s/]+)?$/.test(word))
             );
-            return at !== -1 && words.slice(at + 2).some((word) => /^@opencoredev\\/social-sdk(?:@[^\\s/]+)?$/.test(word));
           }),
       );
   // Blume adds a copy button inside each code block, or to the tab bar of a
