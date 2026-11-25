@@ -925,33 +925,7 @@ export function pinterest(
       observedAt: now(),
     };
 
-    if (media["media_id"] === workflow.mediaId && status === "failed") {
-      // Settle the row locally so the store can reclaim it; no Pinterest write is sent. A row
-      // another worker holds is reported as stored, or as claimed until that worker settles it.
-      const claimed = await workflows.claim(workflow.id).catch(() => undefined);
-
-      if (claimed === false) {
-        const current = await workflows.get(workflow.id).catch(() => undefined);
-
-        return (
-          (current && settled(current, account)) ?? {
-            ...base,
-            state: "processing",
-            backendState: "CLAIMED",
-          }
-        );
-      }
-
-      if (claimed)
-        await (async () => {
-          try {
-            if ((await workflows.get(workflow.id))?.stage === "processing")
-              await workflows.update(workflow.id, { stage: "failed" });
-          } finally {
-            await workflows.release(workflow.id);
-          }
-        })().catch(() => undefined);
-
+    if (media["media_id"] === workflow.mediaId && status === "failed")
       return {
         ...base,
         state: "failed",
@@ -961,7 +935,6 @@ export function pinterest(
         message: "Pinterest could not process the uploaded video. No Pin was created.",
         retryDisposition: { kind: "never" },
       };
-    }
 
     if (
       media["media_id"] !== workflow.mediaId ||
