@@ -4,9 +4,10 @@
 //
 // Captured: pageviews and page leaves (including client-router navigations),
 // JavaScript exceptions, and the docs-interest events below, plus events pages
-// send through window.siteTrack (the Cloud waitlist signup). Autocapture and
-// session recording stay off (Databuddy records replays), and query strings are
-// stripped from URLs before events leave the browser.
+// send through window.siteTrack (the Cloud waitlist signup and the landing
+// page's `landing_cta_click`). Autocapture and session recording stay off
+// (Databuddy records replays), and query strings are stripped from URLs before
+// events leave the browser.
 //
 // PostHog starts once the page has loaded and the main thread is idle, so its
 // bundle doesn't compete with the first paint on slow phones. Its exception
@@ -140,14 +141,50 @@ export const posthogScript = `(() => {
     const event = classify(path);
     if (!event) return;
     // A queued visit keeps its own URL instead of the page PostHog started on.
-    window.posthog.capture(event[0], url ? { ...event[1], $current_url: url } : event[1]);
+    client.capture(event[0], url ? { ...event[1], $current_url: url, $pathname: path } : event[1]);
   };
   // Routes visited before PostHog starts wait here, so a quick hop through the
   // docs still records each page.
   const pending = [];
-  // Events a page reports through window.siteTrack before PostHog starts.
-  const queued = [];
+  // Events a page reports through window.siteTrack before PostHog starts. One
+  // reported just before the visitor leaves, such as a click on a landing-page
+  // link, is kept in sessionStorage so the next page sends it.
+  const carryKey = "siteTrackQueued";
+  const takeCarried = () => {
+    try {
+      const carried = JSON.parse(sessionStorage.getItem(carryKey) ?? "[]");
+      sessionStorage.removeItem(carryKey);
+      return Array.isArray(carried) ? carried : [];
+    } catch {
+      return [];
+    }
+  };
+  const queued = takeCarried();
+  // The loaded SDK instance. Until it exists, window.posthog is the loader's stub.
+  let client = null;
   let started = false;
+  // A page restored from the back/forward cache doesn't run this script again,
+  // so it picks up what the page the visitor came back from carried.
+  addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    for (const [name, properties] of takeCarried()) {
+      if (started) client.capture(name, properties, { send_instantly: true });
+      else queued.push([name, properties]);
+    }
+  });
+  addEventListener("pagehide", () => {
+    if (started || queued.length === 0) return;
+    try {
+      // Another page of this tab may have carried events since this one loaded,
+      // such as a page left before a back/forward cache restore of this one.
+      const carried = JSON.parse(sessionStorage.getItem(carryKey) ?? "[]");
+      sessionStorage.setItem(carryKey, JSON.stringify([...(Array.isArray(carried) ? carried : []), ...queued]));
+      // A page restored from the back/forward cache must not send them again.
+      queued.length = 0;
+    } catch {
+      // Storage is blocked, so the queued events end with this page.
+    }
+  });
   // Pages report their own events here, such as the Cloud waitlist signup, so
   // only this file talks to the analytics service.
   window.siteTrack = (event, properties) => {
@@ -155,8 +192,12 @@ export const posthogScript = `(() => {
     // has run waits in window.databuddyPending until the Databuddy loader sends it.
     if (window.databuddy) window.databuddy.track(event, properties);
     else (window.databuddyPending ??= []).push([event, properties]);
-    if (started) window.posthog.capture(event, properties, { send_instantly: true });
-    else queued.push([event, properties]);
+    if (started) client.capture(event, properties, { send_instantly: true });
+    // A queued event keeps the URL of the page that reported it, as queued visits do.
+    else {
+      const { origin, pathname } = window.location;
+      queued.push([event, { ...properties, $current_url: origin + pathname, $pathname: pathname }]);
+    }
   };
   const visit = () => {
     const path = window.location.pathname;
@@ -176,17 +217,29 @@ export const posthogScript = `(() => {
       disable_session_recording: true,
       before_send: (event) => {
         if (event?.properties) {
-          event.properties.$current_url = stripQuery(event.properties.$current_url);
-          event.properties.$referrer = stripQuery(event.properties.$referrer);
+          for (const key of ["$current_url", "$referrer", "$session_entry_url", "$session_entry_referrer"]) {
+            if (key in event.properties) event.properties[key] = stripQuery(event.properties[key]);
+          }
+          for (const exception of event.properties.$exception_list ?? []) {
+            for (const frame of exception?.stacktrace?.frames ?? []) {
+              if (frame?.filename) frame.filename = stripQuery(frame.filename);
+            }
+          }
         }
         return event;
       },
+      // Until the SDK has loaded, window.posthog is the loader's stub, and an
+      // event captured there is lost if the visitor leaves first. So events keep
+      // waiting in pending and queued, and pagehide carries queued ones to the next page.
+      loaded: (instance) => {
+        client = instance;
+        started = true;
+        pending.splice(0).forEach(([path, url]) => track(path, url));
+        queued.splice(0).forEach(([event, properties]) =>
+          client.capture(event, properties, { send_instantly: true }),
+        );
+      },
     });
-    started = true;
-    pending.forEach(([path, url]) => track(path, url));
-    queued.forEach(([event, properties]) =>
-      window.posthog.capture(event, properties, { send_instantly: true }),
-    );
   };
   // astro:page-load fires on the first load and after every client-router swap.
   visit();
