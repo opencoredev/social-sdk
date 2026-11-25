@@ -240,7 +240,7 @@ if (boards.nextCursor) {
 
 `limit` is Pinterest's `page_size` (1 to 250, default 25) and `cursor` its `bookmark`. `privacy` filters to `PUBLIC` or `PROTECTED` boards. Without it, Pinterest returns every board the token can read, so the adapter keeps only boards marked `PUBLIC` or `PROTECTED` and drops `SECRET` boards and any board with a missing or unknown privacy value; a filtered page can hold fewer items than `limit`. Each board keeps `id`, `name`, `description`, `privacy`, `pin_count`, `follower_count`, `collaborator_count`, `created_at`, `board_pins_modified_at`, `is_ads_only` and `owner.username`.
 
-Pinterest creates Pins only on boards the account owns, but this list also holds group boards the account collaborates on. Before you offer a board as `boardId`, compare its `owner.username` with the `handle` from `social.accounts.get(account)`.
+Pinterest creates Pins only on boards the account owns, but this list also holds group boards the account collaborates on. Offer a board as `boardId` only when its `owner.username` and the `handle` from `social.accounts.get(account)` are both present, nonempty and equal. Either can be missing, and two missing values are not a match.
 
 ## Limits and requirements
 
