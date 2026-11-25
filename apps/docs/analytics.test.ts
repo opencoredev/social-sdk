@@ -262,6 +262,8 @@ test("ignores a late failure from a tracker tag a navigation replaced", () => {
 
   stale?.onerror?.();
   page.siteTrack("landing_cta_click", { cta: "primary" });
+  // A second swap before the replacement loads must still add a fresh tag.
+  page.navigateBeforeTrackerLoads();
   page.startTracker();
 
   assert.deepEqual(page.sent, [["landing_cta_click", { cta: "primary" }]]);

@@ -108,10 +108,11 @@ export const databuddyScript = `(() => {
         }
       };
       tag.onerror = () => {
-        settled.add(src);
         // A tag that a navigation already replaced says nothing about its
         // replacement, which may still load.
-        if (src !== ${JSON.stringify(DATABUDDY_TRACKER_SRC)} || latest.get(src) !== tag) return;
+        if (latest.get(src) !== tag) return;
+        settled.add(src);
+        if (src !== ${JSON.stringify(DATABUDDY_TRACKER_SRC)}) return;
         // The tracker won't load on this page (a blocker, a 404), so queued
         // events have nowhere to go.
         trackerFailed = true;
