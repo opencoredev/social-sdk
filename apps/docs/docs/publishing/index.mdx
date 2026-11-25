@@ -104,7 +104,7 @@ A draft target returns `accepted` with a delivery reference, not `published`, be
 
 ## Reply to a post
 
-Set `replyTo` on a target when destinations reply to different native posts or comments. A request-level `replyTo` applies to all its targets. Every reply reference must use the selected target's account, backend, and platform; mismatches fail preparation before dispatch.
+Set `replyTo` on a target when destinations reply to different native posts or comments. A request-level `replyTo` applies to all its targets. Every reply reference must use the selected target's backend and platform, and it may name a post by another author; mismatches fail preparation before dispatch. The SDK authorizes the target's account, not the parent's author.
 
 Replies through `posts.publish` work only on these direct adapters:
 

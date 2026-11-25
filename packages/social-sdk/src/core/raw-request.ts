@@ -619,6 +619,7 @@ export function managedRawRequest(
       headers.set(...authHeader(options.apiKey));
     },
     reservedHeaders: [credentialHeader.toLowerCase()],
+    reservedQuery: ["access_token", "api_key", "apikey"],
     decodeError: (body, status, dispatch) =>
       providerErrorDecoder(origin, dispatch.path)(body, status),
     ...definedFields({
