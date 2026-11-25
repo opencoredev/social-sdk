@@ -70,6 +70,18 @@ const databuddyTags: [src: string, attributes: Record<string, string>][] = [
  *
  * Once the tracker has run, it sends the events window.siteTrack held in
  * `window.databuddyPending` while the tracker was still loading.
+ *
+ * It also reports the site's conversion clicks to Databuddy, where the goals
+ * and funnels for social-sdk.dev count them:
+ *
+ * - `outbound_click` for a link to the GitHub repository or the npm package,
+ *   with `destination` (`github` or `npm`).
+ * - `install_command_copy` for the landing page's install Copy button and for
+ *   any docs code block that installs `@opencoredev/social-sdk`.
+ * - `docs_code_copy` for every docs code block copy, with its `language`.
+ *
+ * Each carries `surface` (`landing`, `docs` or `site`) and the page path. They
+ * never carry the copied text, link query strings, or anything a visitor typed.
  */
 export const databuddyScript = `(() => {
   const tags = ${JSON.stringify(databuddyTags)};
@@ -77,6 +89,7 @@ export const databuddyScript = `(() => {
   // the latest tag per script.
   const settled = new Set();
   const latest = new Map();
+  let trackerFailed = false;
   const load = () => {
     for (const [src, attributes] of tags) {
       if (settled.has(src) || latest.get(src)?.isConnected) continue;
@@ -94,13 +107,112 @@ export const databuddyScript = `(() => {
           }
         }
       };
-      tag.onerror = () => settled.add(src);
+      tag.onerror = () => {
+        // A tag that a navigation already replaced or removed says nothing
+        // about its replacement, which may still load.
+        if (latest.get(src) !== tag || !tag.isConnected) return;
+        settled.add(src);
+        if (src !== ${JSON.stringify(DATABUDDY_TRACKER_SRC)}) return;
+        // The tracker won't load on this page (a blocker, a 404), so queued
+        // events have nowhere to go.
+        trackerFailed = true;
+        window.databuddyPending = [];
+      };
       latest.set(src, tag);
       document.head.append(tag);
     }
   };
   load();
   document.addEventListener("astro:page-load", load);
+
+  // The one way events reach Databuddy, window.siteTrack's included: sent once
+  // the tracker has run, held in a bounded queue until then, and dropped when
+  // the tracker can't load.
+  const send = (event, properties) => {
+    if (window.databuddy) return window.databuddy.track(event, properties);
+    if (trackerFailed) return;
+    const pending = (window.databuddyPending ??= []);
+    if (pending.length < 50) pending.push([event, properties]);
+  };
+  window.databuddySend = send;
+  const destination = (href) => {
+    try {
+      const url = new URL(href, location.href);
+      if (url.hostname === "github.com" && /^\\/opencoredev\\/social-sdk(\\/|$)/.test(url.pathname))
+        return "github";
+      if (url.hostname === "www.npmjs.com" && /^\\/package\\/@opencoredev\\/social-sdk(\\/|$)/.test(url.pathname))
+        return "npm";
+    } catch {
+      // An href that isn't a URL isn't a conversion link.
+    }
+    return null;
+  };
+  // An install command whose own arguments include the package itself, not a
+  // subpath and not a mention in a comment or a later command.
+  const installsSdk = (code) =>
+    code
+      .replace(/\\\\\\n/g, " ")
+      .split("\\n")
+      .some((line) =>
+        line
+          .split("#")[0]
+          .split(/&&|\\|\\||[;|]/)
+          .some((command) => {
+            const words = command
+              .trim()
+              .split(/\\s+/)
+              .map((word) => word.replace(/^["']|["']$/g, ""));
+            if (words[0] === "$") words.shift();
+            return (
+              /^(?:npm|pnpm|yarn|bun|nub|aube)$/.test(words[0] ?? "") &&
+              /^(?:i|install|add)$/.test(words[1] ?? "") &&
+              words.slice(2).some((word) => /^@opencoredev\\/social-sdk(?:@[^\\s/]+)?$/.test(word))
+            );
+          }),
+      );
+  // Blume adds a copy button inside each code block, or to the tab bar of a
+  // tabbed block, where it copies the visible tab's code.
+  const copiedBlock = (button) => {
+    const own = button.closest("pre");
+    if (own) return own;
+    const tabs = button.closest("blume-tabs, blume-panel-tabs");
+    const panels = Array.from(tabs?.querySelector(":scope > [data-blume-tab-content]")?.children ?? []);
+    const visible = panels.find((panel) => !panel.classList.contains("hidden")) ?? panels[0];
+    return visible?.matches("pre") ? visible : (visible?.querySelector("pre") ?? null);
+  };
+  const where = () => {
+    const page = location.pathname;
+    const surface = page === "/" ? "landing" : page === "/docs" || page.startsWith("/docs/") ? "docs" : "site";
+    return { surface, page };
+  };
+  const outbound = (target) => {
+    const to = destination(target.closest("a[href]")?.getAttribute("href") ?? "");
+    if (to) send("outbound_click", { destination: to, ...where() });
+    return to !== null;
+  };
+  // A middle click opens a link in a new tab and fires auxclick, not click.
+  document.addEventListener(
+    "auxclick",
+    (event) => {
+      if (event.button === 1 && event.target instanceof Element) outbound(event.target);
+    },
+    { capture: true },
+  );
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!(event.target instanceof Element) || outbound(event.target)) return;
+      const { surface, page } = where();
+      if (event.target.closest('[data-cta="install_copy"]'))
+        return send("install_command_copy", { surface, page });
+      const button = event.target.closest("[data-blume-copy]");
+      if (!button) return;
+      const block = copiedBlock(button);
+      send("docs_code_copy", { surface, page, language: block?.dataset.language ?? "Text" });
+      if (installsSdk(block?.textContent ?? "")) send("install_command_copy", { surface, page });
+    },
+    { capture: true },
+  );
 })();`;
 
 const POSTHOG_KEY = "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw";
@@ -188,9 +300,9 @@ export const posthogScript = `(() => {
   // Pages report their own events here, such as the Cloud waitlist signup, so
   // only this file talks to the analytics service.
   window.siteTrack = (event, properties) => {
-    // Databuddy loads on its own schedule, so an event sent before its tracker
-    // has run waits in window.databuddyPending until the Databuddy loader sends it.
-    if (window.databuddy) window.databuddy.track(event, properties);
+    // The Databuddy loader's send queues an event until its tracker has run, and
+    // drops it when the tracker can't load.
+    if (window.databuddySend) window.databuddySend(event, properties);
     else (window.databuddyPending ??= []).push([event, properties]);
     if (started) client.capture(event, properties, { send_instantly: true });
     // A queued event keeps the URL of the page that reported it, as queued visits do.
@@ -251,11 +363,13 @@ export const posthogScript = `(() => {
 })();`;
 
 /** Adds the PostHog snippet and the Databuddy tags to a standalone HTML page in production builds. */
+/** Every page's analytics scripts, in the order its <head> runs them. */
+export const headScripts = [posthogScript, databuddyScript];
+
 export function withAnalytics(html: string): string {
   if (!import.meta.env.PROD) return html;
 
-  return html.replace(
-    "</head>",
-    `<script>${posthogScript}</script>\n  <script>${databuddyScript}</script>\n  </head>`,
-  );
+  const tags = headScripts.map((content) => `<script>${content}</script>\n  `).join("");
+
+  return html.replace("</head>", `${tags}</head>`);
 }
