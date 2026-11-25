@@ -613,6 +613,53 @@ export function pinterest(
       return id;
     });
 
+  /** A failed outcome that keeps the workflow reference, so the upload can be continued. */
+  const failedVideo = (
+    workflow: PinterestVideoWorkflow,
+    account: ConnectedAccountRef,
+    error: SocialError,
+  ): DeliveryOutcome => ({
+    state: "failed",
+    targetIndex: 0,
+    account,
+    delivery: deliveryRef(account, workflow.id),
+    observedAt: now(),
+    mediaId: workflow.mediaId,
+    code: error.code,
+    message: error.message,
+    retryDisposition: error.retryDisposition,
+  });
+
+  /** The outcome a stored workflow already settles, or undefined while it is still processing. */
+  const settled = (
+    row: PinterestVideoWorkflow,
+    account: ConnectedAccountRef,
+  ): DeliveryOutcome | undefined => {
+    const delivery = deliveryRef(account, row.id);
+    const base = { targetIndex: 0, account, delivery, observedAt: now(), mediaId: row.mediaId };
+
+    if (row.stage === "processing") return undefined;
+
+    if (row.stage === "published" && row.pinId !== undefined)
+      return published(account, row.pinId, delivery);
+
+    if (row.stage === "failed")
+      return {
+        ...base,
+        state: "failed",
+        code: "media_error",
+        message: "The Pinterest video Pin was not created.",
+        retryDisposition: { kind: "never" },
+      };
+
+    return {
+      ...base,
+      state: "unknown",
+      reason: "ambiguous-submission",
+      diagnostic: "The Pin request was sent without a confirmed answer and was not repeated.",
+    };
+  };
+
   /** Read the media status once and create the Pin when it has `succeeded`. No polling. */
   const continueVideo = async (
     workflow: PinterestVideoWorkflow,
@@ -621,7 +668,16 @@ export function pinterest(
   ): Promise<DeliveryOutcome> => {
     const delivery = deliveryRef(account, workflow.id);
     const base = { targetIndex: 0, account, delivery, mediaId: workflow.mediaId };
-    const media = object(await request(`/media/${encodeURIComponent(workflow.mediaId)}`, context));
+    let media: JsonObject;
+
+    try {
+      media = object(await request(`/media/${encodeURIComponent(workflow.mediaId)}`, context));
+    } catch (error) {
+      // Nothing was written: the workflow stays processing and can be continued later.
+      if (error instanceof SocialError) return failedVideo(workflow, account, error);
+      throw error;
+    }
+
     const status = media["status"];
 
     if (media["media_id"] !== workflow.mediaId)
@@ -678,8 +734,7 @@ export function pinterest(
         context,
       );
     } catch (error) {
-      // A stated rejection created no Pin: a rate limit can be continued later and any other
-      // rejection ends the workflow. An unanswered request stays `creating` and is never resent.
+      // An unanswered request stays `creating` and is never resent.
       if (
         !(error instanceof SocialError) ||
         error.code === "ambiguous_outcome" ||
@@ -694,10 +749,13 @@ export function pinterest(
           diagnostic: "The Pin request was sent without a confirmed answer and was not repeated.",
         };
 
+      // A stated rejection created no Pin: a rate limit can be continued later and any other
+      // rejection ends the workflow.
       await workflows.update(workflow.id, {
         stage: error.code === "rate_limited" ? "processing" : "failed",
       });
-      throw error;
+
+      return failedVideo(workflow, account, error);
     }
 
     const outcome = published(account, pinId, delivery);
@@ -707,6 +765,53 @@ export function pinterest(
     } catch {
       // The Pin exists; the caller must repair the workflow before relying on it.
       return { ...outcome, backendState: "CREATED_WORKFLOW_SAVE_FAILED" };
+    }
+
+    return outcome;
+  };
+
+  /**
+   * Continue a workflow under its claim. The row is reread after the claim, so a continuation
+   * never acts on a copy another worker has already advanced. A failed release does not hide
+   * the outcome; it is reported in `backendState`.
+   */
+  const resume = async (
+    id: string,
+    account: ConnectedAccountRef,
+    context: AdapterOperationContext,
+  ): Promise<DeliveryOutcome> => {
+    if (!(await workflows.claim(id)))
+      return {
+        targetIndex: 0,
+        account,
+        delivery: deliveryRef(account, id),
+        observedAt: now(),
+        state: "processing",
+        backendState: "CLAIMED",
+      };
+
+    let outcome: DeliveryOutcome;
+
+    try {
+      const current = await workflows.get(id);
+
+      if (current === undefined)
+        throw new SocialError({
+          code: "not_found",
+          operation: "pinterest.posts.status",
+          message: "The Pinterest video workflow disappeared from the store.",
+        });
+
+      outcome = settled(current, account) ?? (await continueVideo(current, account, context));
+    } catch (error) {
+      await workflows.release?.(id).catch(() => undefined);
+      throw error;
+    }
+
+    try {
+      await workflows.release?.(id);
+    } catch {
+      return { ...outcome, backendState: "CLAIM_RELEASE_FAILED" };
     }
 
     return outcome;
@@ -734,9 +839,10 @@ export function pinterest(
     if (!numericId(mediaId) || !isString(uploadUrl) || !isJsonObject(parameters))
       throw mediaError("Pinterest returned an unusable media registration. No Pin was created.");
 
-    // Build the multipart body from parts around the original Blob, so the file is not copied.
-    const boundary = "pinterest-" + globalThis.crypto.randomUUID().replaceAll("-", "");
-    const parts: (string | Blob)[] = [];
+    // Stream the multipart body around the original Blob, so the file is neither copied nor
+    // buffered. Its length is known, so the upload sends an exact Content-Length.
+    const boundary = "pinterest" + globalThis.crypto.randomUUID().replaceAll("-", "");
+    let head = "";
 
     for (const [name, value] of Object.entries(parameters)) {
       if (!isString(value) || /["\r\n]/.test(name) || /[\r\n]/.test(value))
@@ -744,31 +850,69 @@ export function pinterest(
           "Pinterest returned an unusable upload parameter. No Pin was created.",
           mediaId,
         );
-      parts.push(
+      head +=
         "--" +
-          boundary +
-          '\r\nContent-Disposition: form-data; name="' +
-          name +
-          '"\r\n\r\n' +
-          value +
-          "\r\n",
-      );
+        boundary +
+        '\r\nContent-Disposition: form-data; name="' +
+        name +
+        '"\r\n\r\n' +
+        value +
+        "\r\n";
     }
 
-    parts.push(
-      "--" + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="video"\r\n',
-      "Content-Type: " + video.mimeType + "\r\n\r\n",
-      video.blob,
-      "\r\n--" + boundary + "--\r\n",
-    );
+    head +=
+      "--" + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="video"\r\n';
+    head += "Content-Type: " + video.mimeType + "\r\n\r\n";
+    const encoder = new TextEncoder();
+    const prefix = encoder.encode(head);
+    const suffix = encoder.encode("\r\n--" + boundary + "--\r\n");
+    const size = prefix.byteLength + video.blob.size + suffix.byteLength;
 
-    const body = new Blob(parts, { type: "multipart/form-data; boundary=" + boundary });
+    const open = (): ReadableStream<Uint8Array> => {
+      const file = video.blob.stream().getReader();
+      let stage: "prefix" | "file" | "suffix" | "done" = "prefix";
+
+      return new ReadableStream<Uint8Array>({
+        async pull(output) {
+          if (stage === "prefix") {
+            stage = "file";
+            output.enqueue(prefix);
+
+            return;
+          }
+
+          if (stage === "file") {
+            const next = await file.read();
+
+            if (!next.done) {
+              output.enqueue(next.value);
+
+              return;
+            }
+
+            stage = "suffix";
+          }
+
+          if (stage === "suffix") {
+            stage = "done";
+            output.enqueue(suffix);
+
+            return;
+          }
+
+          output.close();
+        },
+        cancel(reason) {
+          void file.cancel(reason).catch(() => undefined);
+        },
+      });
+    };
 
     try {
       await upload({
         url: uploadUrl,
         method: "POST",
-        source: { mimeType: body.type, size: body.size, body, open: () => body.stream() },
+        source: { mimeType: "multipart/form-data; boundary=" + boundary, size, open },
         allowHost: isUploadHost,
         maxBytes: maxVideoBytes + 1024 * 1024,
         timeoutMs: remainingBudget(context),
@@ -999,7 +1143,7 @@ export function pinterest(
         });
 
         return {
-          ...(await continueVideo(workflow, target.account, context)),
+          ...(await resume(workflow.id, target.account, context)),
           targetIndex: target.targetIndex,
         };
       },
@@ -1033,63 +1177,7 @@ export function pinterest(
           accountId: ref.accountId,
         };
 
-        const settled = (row: PinterestVideoWorkflow): DeliveryOutcome | undefined => {
-          const delivery = deliveryRef(account, row.id);
-          const base = { targetIndex: 0, account, delivery, observedAt: now() };
-
-          if (row.stage === "processing") return undefined;
-
-          if (row.stage === "published" && row.pinId !== undefined)
-            return published(account, row.pinId, delivery);
-
-          if (row.stage === "failed")
-            return {
-              ...base,
-              state: "failed",
-              code: "media_error",
-              message: "The Pinterest video Pin was not created.",
-              mediaId: row.mediaId,
-              retryDisposition: { kind: "never" },
-            };
-
-          return {
-            ...base,
-            state: "unknown",
-            reason: "ambiguous-submission",
-            mediaId: row.mediaId,
-            diagnostic: "The Pin request was sent without a confirmed answer and was not repeated.",
-          };
-        };
-
-        const stored = settled(workflow);
-
-        if (stored !== undefined) return stored;
-
-        if (!(await workflows.claim(workflow.id)))
-          return {
-            targetIndex: 0,
-            account,
-            delivery: deliveryRef(account, workflow.id),
-            observedAt: now(),
-            state: "processing",
-            backendState: "CLAIMED",
-          };
-
-        try {
-          // Another continuation may have finished between the read and the claim.
-          const current = await workflows.get(workflow.id);
-
-          if (current === undefined)
-            throw new SocialError({
-              code: "not_found",
-              operation: "pinterest.posts.status",
-              message: "The Pinterest video workflow disappeared from the store.",
-            });
-
-          return settled(current) ?? (await continueVideo(current, account, context));
-        } finally {
-          await workflows.release?.(workflow.id);
-        }
+        return settled(workflow, account) ?? (await resume(workflow.id, account, context));
       },
       async removeFromPlatform(
         ref: PlatformPostRef,
@@ -1112,8 +1200,8 @@ export function pinterest(
           "DELETE",
         );
 
-        // Pinterest documents 204 No Content, or 200 with the deleted Pin.
-        if (body !== null && !isJsonObject(body))
+        // Pinterest documents 204 No Content, or 200 with the deleted Pin, whose ID must match.
+        if (body !== null && (!isJsonObject(body) || body["id"] !== ref.postId))
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "pinterest.posts.removeFromPlatform",

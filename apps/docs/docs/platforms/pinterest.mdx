@@ -47,7 +47,7 @@ const result = await social.posts.publish({
 });
 ```
 
-The adapter takes an existing access token and the numeric user account ID that `GET /v5/user_account` returns as `id`. Running the OAuth flow, refreshing tokens, and storing them stay with your application.
+The adapter takes an existing access token and the numeric user account ID that `GET /v5/user_account` returns as `id`. Running the OAuth flow, refreshing tokens, and storing them stay with your application. The adapter trusts that pair as configured, as the other direct adapters do, so call `social.accounts.get(account)` once when you connect an account: it fails as `unauthorized` if the token belongs to someone else.
 
 ## Setup
 
@@ -163,7 +163,7 @@ if (outcome?.state === "processing" && outcome.delivery) {
 
 Pass the video as a Blob of an MP4, M4V or MOV file, 4 seconds to 5 minutes long, and an HTTPS `thumbnail` for the cover, sent as `cover_image_url`. The API schema also lists `cover_image_key_frame_time`, but Pinterest's video Pin guide says a valid cover image URL is required, so the adapter asks for one. The adapter uploads up to 2 GiB; Pinterest states no size limit for organic video Pins.
 
-`publishTarget` registers the upload, posts the file with the `upload_parameters` to Pinterest's S3 bucket, and reads the media status once. It does not poll. When the status is `succeeded` it creates the Pin and returns `published` with its ID. Pinterest notes that a new video Pin can still show `creative_type: REGULAR` for a few seconds while it finishes processing; the Pin exists either way. while it is `registered` or `processing` it returns `processing` with a delivery reference. Call `posts.getDelivery` with that reference to continue. A `failed` status returns a `failed` outcome with code `media_error` and the `mediaId`.
+`publishTarget` registers the upload, posts the file with the `upload_parameters` to Pinterest's S3 bucket, and reads the media status once. It does not poll. When the status is `succeeded` it creates the Pin and returns `published` with its ID. Pinterest notes that a new video Pin can still show `creative_type: REGULAR` for a few seconds while it finishes processing; the Pin exists either way. while it is `registered` or `processing` it returns `processing` with a delivery reference. Call `posts.getDelivery` with that reference to continue. Continuing can send the Pin request the original publish prepared, so give `posts.getDelivery` only to callers or workers that may publish for the account. A failed status read or a rate-limited Pin request returns `failed` with the same delivery reference, the `mediaId` and a retry disposition, and the workflow stays continuable. A `failed` status returns a `failed` outcome with code `media_error` and the `mediaId`.
 
 The workflow store keeps the pending Pin request. The default `MemoryPinterestWorkflowStore` lives in the process, which is fine for a script. On a server, implement `PinterestWorkflowStore` over shared storage so a processing video can be continued after a restart. Its `claim` must be atomic: a continuation rereads the row after it wins the claim, so it never acts on a stale copy, and one that loses the claim returns `processing` with `backendState: "CLAIMED"` and sends nothing.
 

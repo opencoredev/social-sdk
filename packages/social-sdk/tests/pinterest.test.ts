@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { openAsBlob } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   MemoryPinterestWorkflowStore,
   pinterest,
@@ -91,6 +95,7 @@ interface Recorded {
   readonly headers: Headers;
   json?: JsonObject;
   form?: FormData;
+  size?: number;
 }
 
 /** Fake fetch keyed by "METHOD host/path"; each key answers its queued replies in order. */
@@ -102,14 +107,23 @@ function route(replies: Record<string, readonly Response[]>) {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
     const headers = new Headers(init?.headers);
-    const sent = new Request(url, { method, headers, body: init?.body ?? null });
     const recorded: Recorded = { method, url, headers };
     const hasBody = init?.body !== undefined && init.body !== null;
 
-    if (hasBody && headers.get("content-type")?.startsWith("multipart/form-data"))
-      recorded.form = await sent.formData();
+    const bytes = hasBody
+      ? new Uint8Array(await new Response(init?.body).arrayBuffer())
+      : undefined;
+
+    if (bytes !== undefined) recorded.size = bytes.byteLength;
+
+    const contentType = headers.get("content-type") ?? "";
+
+    if (bytes !== undefined && contentType.startsWith("multipart/form-data"))
+      recorded.form = await new Response(bytes, {
+        headers: { "content-type": contentType },
+      }).formData();
     else if (hasBody && headers.get("content-type") === "application/json") {
-      const parsed = parseJson(await sent.text());
+      const parsed = parseJson(new TextDecoder().decode(bytes));
 
       if (isJsonValue(parsed) && isJsonObject(parsed)) recorded.json = parsed;
     }
@@ -875,4 +889,184 @@ test("the adapter rejects missing credentials and non-numeric account IDs", () =
   assert.throws(() => pinterest({ auth: { accessToken: "t", accountId: "user" } }), {
     code: "invalid_config",
   });
+});
+
+test("a file-backed video Blob reaches S3 byte for byte inside the multipart body", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pinterest-video-"));
+  const bytes = new Uint8Array(4505).map((_, index) => index % 251);
+  const path = join(directory, "clip.mp4");
+  await writeFile(path, bytes);
+  const blob = await openAsBlob(path, { type: "video/mp4" });
+
+  try {
+    const { fetch, calls } = route({
+      ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+      ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+      ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("processing"))],
+    });
+
+    const { social } = client(fetch);
+
+    const result = await social.posts.publish({
+      targets: [{ account, options: { boardId: "1" } }],
+      content: { media: [video({ source: { kind: "blob", blob, fingerprint: "file" } })] },
+    });
+
+    assert.equal(only(result.outcomes).state, "processing");
+    const file = calls[1]?.form?.get("file");
+    assert.ok(file instanceof Blob);
+    assert.deepEqual(new Uint8Array(await file.arrayBuffer()), bytes);
+    assert.equal(calls[1]?.headers.get("content-length"), String(calls[1]?.size));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("the initial publish rereads its workflow under the claim before creating the Pin", async () => {
+  /** Another worker finishes the row between create() and the publishing call's claim. */
+  class RacingStore extends MemoryPinterestWorkflowStore {
+    override async create(input: Parameters<MemoryPinterestWorkflowStore["create"]>[0]) {
+      const row = await super.create(input);
+      await this.update(row.id, { stage: "published", pinId: "999" });
+
+      return row;
+    }
+  }
+
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+  });
+
+  const { social } = client(fetch, { workflowStore: new RacingStore() });
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "published");
+  assert.equal(outcome.post.postId, "999");
+  assert.equal(calls.length, 2);
+});
+
+test("a rate-limited video Pin request keeps its delivery and continues later", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [
+      json(fixtures.media("succeeded")),
+      json(fixtures.media("succeeded")),
+    ],
+    ["POST " + api + "/v5/pins"]: [
+      json(fixtures.error(8, "Rate limited"), 429, { "retry-after": "5" }),
+      json(fixtures.pin, 201),
+    ],
+  });
+
+  const { social } = client(fetch);
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.code, "rate_limited");
+  assert.deepEqual(outcome.retryDisposition, { kind: "after-delay", delayMs: 5000 });
+  assert.equal(outcome.mediaId, "12345");
+  assert.ok(outcome.delivery);
+
+  const resumed = await social.posts.getDelivery(outcome.delivery);
+  assert.equal(resumed.state, "published");
+  assert.equal(calls.filter((call) => call.url.pathname === "/v5/pins").length, 2);
+});
+
+test("a failed status read after the upload keeps the delivery and sends no Pin request", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.error(1, "Internal"), 500)],
+  });
+
+  const { social } = client(fetch);
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.mediaId, "12345");
+  assert.ok(outcome.delivery);
+  assert.equal(calls.length, 3);
+});
+
+test("a failed claim release does not hide a created Pin", async () => {
+  class SlipperyStore extends MemoryPinterestWorkflowStore {
+    override async release(): Promise<void> {
+      throw new Error("lock service unavailable");
+    }
+  }
+
+  const { fetch } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("succeeded"))],
+    ["POST " + api + "/v5/pins"]: [json(fixtures.pin, 201)],
+  });
+
+  const { social } = client(fetch, { workflowStore: new SlipperyStore() });
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "published");
+  assert.equal(outcome.backendState, "CLAIM_RELEASE_FAILED");
+  assert.doesNotMatch(JSON.stringify(outcome), /lock service/);
+});
+
+test("a 200 delete answer must name the deleted Pin", async () => {
+  const ref = platformPostRef({
+    backend: "default",
+    platform: "pinterest",
+    accountId,
+    postId: fixtures.pin.id,
+  });
+
+  const path = "DELETE " + api + "/v5/pins/813744226420795884";
+
+  await client(route({ [path]: [json(fixtures.pin)] }).fetch).social.posts.removeFromPlatform(ref);
+
+  const error = await client(route({ [path]: [json({ ...fixtures.pin, id: "1" })] }).fetch)
+    .social.posts.removeFromPlatform(ref)
+    .catch((cause: unknown) => cause);
+
+  assert.ok(error instanceof SocialError);
+  assert.equal(error.code, "ambiguous_outcome");
+});
+
+test("the default board list drops secret boards", async () => {
+  const { fetch, calls } = route({
+    ["GET " + api + "/v5/boards"]: [
+      json({
+        items: [...fixtures.boardsPage.items, { id: "9", name: "Hidden", privacy: "SECRET" }],
+      }),
+    ],
+  });
+
+  const page = await client(fetch).adapter.native!.listBoards({ account, context });
+
+  assert.deepEqual(
+    page.items.map((board) => board["id"]),
+    ["549755885175"],
+  );
+  assert.equal(calls[0]?.url.searchParams.get("privacy"), null);
+  assert.equal(page.nextCursor, undefined);
 });
