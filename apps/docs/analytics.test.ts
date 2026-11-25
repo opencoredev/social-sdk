@@ -149,16 +149,18 @@ const copyButton = () => new FakeElement("button", { "data-blume-copy": "" });
 
 const link = (href: string) => new FakeElement("a", { href });
 
-test("queues landing install copies and GitHub clicks, then sends them once the tracker loads", () => {
+test("queues landing clicks and siteTrack events, then sends them once the tracker loads", () => {
   const page = load("/");
 
   page.dispatch("click", new FakeElement("button", { "data-cta": "install_copy" }));
+  page.siteTrack("landing_cta_click", { cta: "install_copy" });
   page.dispatch("click", link("https://github.com/opencoredev/social-sdk"));
 
   const where = { surface: "landing", page: "/" };
 
   const expected: Sent[] = [
     ["install_command_copy", where],
+    ["landing_cta_click", { cta: "install_copy" }],
     ["outbound_click", { destination: "github", ...where }],
   ];
 
