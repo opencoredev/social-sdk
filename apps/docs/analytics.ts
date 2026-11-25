@@ -214,8 +214,9 @@ export const posthogScript = `(() => {
       disable_session_recording: true,
       before_send: (event) => {
         if (event?.properties) {
-          event.properties.$current_url = stripQuery(event.properties.$current_url);
-          event.properties.$referrer = stripQuery(event.properties.$referrer);
+          for (const key of ["$current_url", "$referrer", "$session_entry_url", "$session_entry_referrer"]) {
+            if (key in event.properties) event.properties[key] = stripQuery(event.properties[key]);
+          }
         }
         return event;
       },
