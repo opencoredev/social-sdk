@@ -130,6 +130,11 @@
       "types": "./dist/platforms/facebook.d.ts",
       "import": "./dist/platforms/facebook.js",
       "default": "./dist/platforms/facebook.js"
+    },
+    "./pinterest": {
+      "types": "./dist/platforms/pinterest.d.ts",
+      "import": "./dist/platforms/pinterest.js",
+      "default": "./dist/platforms/pinterest.js"
     }
   },
   "publishConfig": {

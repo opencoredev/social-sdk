@@ -14,5 +14,6 @@ export default defineMeta({
     "instagram",
     "linkedin",
     "facebook",
+    "pinterest",
   ],
 });

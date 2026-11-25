@@ -43,6 +43,7 @@ const providerSources = new Map<string, readonly string[]>([
   ],
   ["bluesky", ["src/platforms/bluesky.ts", "src/server/bluesky-oauth.ts"]],
   ["facebook", ["src/platforms/facebook.ts"]],
+  ["pinterest", ["src/platforms/pinterest.ts"]],
   ["instagram", ["src/platforms/instagram.ts"]],
   ["threads", ["src/platforms/threads.ts"]],
   ["linkedin", ["src/platforms/linkedin.ts"]],

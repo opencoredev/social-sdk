@@ -16345,5 +16345,173 @@
         }
       ]
     }
+  },
+  {
+    "adapter": "pinterest",
+    "manifest": {
+      "schemaVersion": 1,
+      "backend": "pinterest",
+      "apiRevision": "Pinterest API v5 (OpenAPI 5.32.0)",
+      "runtime": [
+        "node22",
+        "node24",
+        "bun"
+      ],
+      "capabilities": [
+        {
+          "platform": "pinterest",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "image",
+            "carousel"
+          ],
+          "requiredScopes": [
+            "boards:read",
+            "boards:write",
+            "pins:read",
+            "pins:write"
+          ],
+          "constraints": {
+            "mediaSources": [
+              "https-url"
+            ],
+            "maxItems": 5,
+            "allowedMimeTypes": [
+              "image/bmp",
+              "image/jpeg",
+              "image/png",
+              "image/tiff",
+              "image/webp"
+            ]
+          },
+          "notes": "Creates an image Pin, or a carousel Pin of 2 to 5 images, on options.boardId. content.text is the description."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "boards:read",
+            "boards:write",
+            "pins:read",
+            "pins:write"
+          ],
+          "constraints": {
+            "mediaSources": [
+              "blob",
+              "https-url"
+            ],
+            "maxItems": 1,
+            "maxBytes": 2147483648,
+            "maxDurationSeconds": 300,
+            "allowedMimeTypes": [
+              "video/mp4",
+              "video/x-m4v",
+              "video/quicktime"
+            ]
+          },
+          "notes": "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; continue it with posts.getDelivery. Needs an HTTPS thumbnail or coverImageKeyFrameTime."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.status",
+          "availability": "available",
+          "requiredScopes": [
+            "boards:read",
+            "boards:write",
+            "pins:read",
+            "pins:write"
+          ],
+          "notes": "Continues a processing video Pin from the workflow store: one media status read, then one Pin request."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.removeFromPlatform",
+          "availability": "available",
+          "requiredScopes": [
+            "boards:read",
+            "boards:write",
+            "pins:read",
+            "pins:write"
+          ],
+          "notes": "DELETE /v5/pins/{pin_id}."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "accounts.read",
+          "availability": "available",
+          "requiredScopes": [
+            "user_accounts:read"
+          ]
+        },
+        {
+          "platform": "pinterest",
+          "operation": "boards.read",
+          "availability": "available",
+          "requiredScopes": [
+            "boards:read"
+          ],
+          "notes": "native.listBoards reads public and protected boards, for options.boardId."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.schedule",
+          "availability": "unsupported-by-platform",
+          "notes": "Pinterest's API creates Pins immediately; it has no publish-time field."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "boards.secret.read",
+          "availability": "not-implemented-by-adapter",
+          "notes": "Secret boards need the boards:read_secret scope and are not listed."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.read",
+          "availability": "not-implemented-by-adapter",
+          "notes": "GET /v5/pins/{pin_id} is not mapped."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.update",
+          "availability": "not-implemented-by-adapter",
+          "notes": "PATCH /v5/pins/{pin_id} is not mapped."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "analytics.read",
+          "availability": "not-implemented-by-adapter",
+          "notes": "Pin and account analytics are not mapped."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "comments.read",
+          "availability": "unsupported-by-platform",
+          "notes": "Pinterest API v5 has no Pin comment endpoints."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "webhooks.verify",
+          "availability": "not-implemented-by-adapter",
+          "notes": "Pinterest webhooks are not mapped."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "ads.manage",
+          "availability": "not-implemented-by-adapter",
+          "notes": "Ads endpoints are not mapped."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "catalogs.manage",
+          "availability": "not-implemented-by-adapter",
+          "notes": "Catalog endpoints are not mapped."
+        }
+      ]
+    }
   }
 ]

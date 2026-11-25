@@ -1,0 +1,233 @@
+[
+  {
+    "id": "pinterest.publish.image",
+    "provider": "pinterest",
+    "area": "publish",
+    "title": "Image Pin (media_source image_url; board_id, title, description, link, alt_text)",
+    "note": "Fixtures are written from the OpenAPI description; no live or sandbox request was made.",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/api/v5/pins-create",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "source_type: \"image_url\"",
+        "alt_text"
+      ],
+      "test": [
+        "feature:pinterest\\.publish\\.image\\]"
+      ],
+      "docs": [
+        "image_url"
+      ]
+    }
+  },
+  {
+    "id": "pinterest.publish.carousel",
+    "provider": "pinterest",
+    "area": "publish",
+    "title": "Carousel Pin of 2 to 5 images (multiple_image_urls)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/api/v5/pins-create",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "multiple_image_urls"
+      ],
+      "test": [
+        "feature:pinterest\\.publish\\.carousel"
+      ],
+      "docs": [
+        "multiple_image_urls"
+      ]
+    }
+  },
+  {
+    "id": "pinterest.publish.image_base64",
+    "provider": "pinterest",
+    "area": "publish",
+    "title": "Base64 images (image_base64, multiple_image_base64), opt-in with imageBase64",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/api/v5/pins-create",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "image_base64",
+        "multiple_image_base64"
+      ],
+      "test": [
+        "feature:pinterest\\.publish\\.image_base64"
+      ],
+      "docs": [
+        "imageBase64"
+      ]
+    }
+  },
+  {
+    "id": "pinterest.publish.video",
+    "provider": "pinterest",
+    "area": "publish",
+    "title": "Video Pin: POST /v5/media, multipart upload to upload_url, GET /v5/media/{id}, media_source video_id",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/work-with-organic-content-and-users/create-boards-and-pins/",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/media\"",
+        "video_id",
+        "upload_parameters"
+      ],
+      "test": [
+        "feature:pinterest\\.publish\\.video"
+      ],
+      "docs": [
+        "cover_image_url",
+        "coverImageKeyFrameTime"
+      ]
+    }
+  },
+  {
+    "id": "pinterest.sandbox",
+    "provider": "pinterest",
+    "area": "sandbox",
+    "title": "Sandbox host api-sandbox.pinterest.com for Trial apps; no video Pins",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/developer-tools/sandbox/",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "api-sandbox\\.pinterest\\.com"
+      ],
+      "test": [
+        "feature:pinterest\\.sandbox"
+      ],
+      "docs": [
+        "sandbox: true"
+      ]
+    }
+  },
+  {
+    "id": "pinterest.delete",
+    "provider": "pinterest",
+    "area": "delete",
+    "title": "Delete Pin (DELETE /v5/pins/{pin_id})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/api/v5/pins-delete",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"DELETE\""
+      ],
+      "test": [
+        "feature:pinterest\\.delete"
+      ],
+      "docs": [
+        "DELETE /v5/pins"
+      ]
+    }
+  },
+  {
+    "id": "pinterest.accounts",
+    "provider": "pinterest",
+    "area": "accounts",
+    "title": "User account read (GET /v5/user_account)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/api/v5/user_account-get",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/user_account"
+      ],
+      "test": [
+        "feature:pinterest\\.accounts"
+      ],
+      "docs": [
+        "GET /v5/user_account"
+      ]
+    }
+  },
+  {
+    "id": "pinterest.boards",
+    "provider": "pinterest",
+    "area": "boards",
+    "title": "List boards (GET /v5/boards; bookmark, page_size, privacy)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.pinterest.com/docs/api/v5/boards-list",
+      "checked": "2026-11-25",
+      "apiVersion": "v5 (OpenAPI 5.32.0)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/boards\"",
+        "page_size"
+      ],
+      "test": [
+        "feature:pinterest\\.boards"
+      ],
+      "docs": [
+        "listBoards"
+      ]
+    }
+  }
+]

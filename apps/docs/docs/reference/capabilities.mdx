@@ -1283,6 +1283,21 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | facebook | facebook | normalized | messages.write | available | None declared | pages_messaging, pages_manage_metadata, pages_read_engagement | None declared | None declared | None declared | Replies with messaging_type RESPONSE inside the 24-hour window to the conversation's one other participant. native.sendMessage adds UPDATE, the HUMAN_AGENT tag, and attachments; native.privateReply answers a comment. |
 | facebook | facebook | native | raw.request | available | None declared | See adapter setup | None declared | None declared | None declared | native.request sends one request to graph.facebook.com, graph-video.facebook.com and rupload.facebook.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends. |
 | facebook | facebook | normalized | webhooks.verify | available | None declared | See adapter setup | None declared | None declared | None declared | Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=page deliveries. Answer the GET handshake with answerMetaWebhookChallenge. |
+| pinterest | pinterest | normalized | posts.publish | available | image, carousel | boards:read, boards:write, pins:read, pins:write | None declared | None declared | https-url | Creates an image Pin, or a carousel Pin of 2 to 5 images, on options.boardId. content.text is the description. |
+| pinterest | pinterest | normalized | posts.publish | available | video | boards:read, boards:write, pins:read, pins:write | None declared | None declared | blob, https-url | Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; continue it with posts.getDelivery. Needs an HTTPS thumbnail or coverImageKeyFrameTime. |
+| pinterest | pinterest | normalized | posts.status | available | None declared | boards:read, boards:write, pins:read, pins:write | None declared | None declared | None declared | Continues a processing video Pin from the workflow store: one media status read, then one Pin request. |
+| pinterest | pinterest | normalized | posts.removeFromPlatform | available | None declared | boards:read, boards:write, pins:read, pins:write | None declared | None declared | None declared | DELETE /v5/pins/&#123;pin_id&#125;. |
+| pinterest | pinterest | normalized | accounts.read | available | None declared | user_accounts:read | None declared | None declared | None declared | None declared |
+| pinterest | pinterest | native | boards.read | available | None declared | boards:read | None declared | None declared | None declared | native.listBoards reads public and protected boards, for options.boardId. |
+| pinterest | pinterest | normalized | posts.schedule | unsupported-by-platform | None declared | See adapter setup | None declared | None declared | None declared | Pinterest's API creates Pins immediately; it has no publish-time field. |
+| pinterest | pinterest | normalized | boards.secret.read | not-implemented-by-adapter | None declared | See adapter setup | None declared | None declared | None declared | Secret boards need the boards:read_secret scope and are not listed. |
+| pinterest | pinterest | normalized | posts.read | not-implemented-by-adapter | None declared | See adapter setup | None declared | None declared | None declared | GET /v5/pins/&#123;pin_id&#125; is not mapped. |
+| pinterest | pinterest | native | posts.update | not-implemented-by-adapter | None declared | See adapter setup | None declared | None declared | None declared | PATCH /v5/pins/&#123;pin_id&#125; is not mapped. |
+| pinterest | pinterest | normalized | analytics.read | not-implemented-by-adapter | None declared | See adapter setup | None declared | None declared | None declared | Pin and account analytics are not mapped. |
+| pinterest | pinterest | normalized | comments.read | unsupported-by-platform | None declared | See adapter setup | None declared | None declared | None declared | Pinterest API v5 has no Pin comment endpoints. |
+| pinterest | pinterest | normalized | webhooks.verify | not-implemented-by-adapter | None declared | See adapter setup | None declared | None declared | None declared | Pinterest webhooks are not mapped. |
+| pinterest | pinterest | normalized | ads.manage | not-implemented-by-adapter | None declared | See adapter setup | None declared | None declared | None declared | Ads endpoints are not mapped. |
+| pinterest | pinterest | normalized | catalogs.manage | not-implemented-by-adapter | None declared | See adapter setup | None declared | None declared | None declared | Catalog endpoints are not mapped. |
 
 ## Capability IDs and methods
 
@@ -1297,6 +1312,7 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | posts.read | posts.get |
 | posts.list | posts.list |
 | posts.status | posts.getDelivery |
+| boards.read | native.listBoards |
 | posts.cancelScheduled | posts.cancelScheduled |
 | posts.deleteBackendRecord | posts.deleteBackendRecord |
 | posts.removeFromPlatform | posts.removeFromPlatform |
