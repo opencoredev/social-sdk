@@ -329,13 +329,15 @@
         transform: rotate(0.4deg);
       }
       .install-line code {
+        flex: 1;
+        min-width: 0;
         font-family: var(--mono);
         font-size: 15px;
-        white-space: nowrap;
-        overflow-x: auto;
+        overflow-wrap: anywhere;
       }
       .copy {
         flex-shrink: 0;
+        min-width: 5.2em;
         padding: 3px 12px;
         border: 1.5px solid var(--ink);
         border-radius: 7px;
@@ -1923,7 +1925,8 @@
               <h3>Managed backend</h3>
               <p>
                 A provider connects the accounts and holds the tokens, on its own account and
-                pricing. Postiz can also be self-hosted.
+                pricing. Postiz can also be self-hosted, but then you register your own platform
+                apps.
               </p>
               <ul class="route-chips">
                 <li>
