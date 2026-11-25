@@ -1,0 +1,14 @@
+{
+  "name": "social-sdk",
+  "description": "Integrate the open-source Social SDK into a TypeScript app: choose a backend, connect authorized accounts, publish mock-first, render per-destination outcomes, and verify webhooks.",
+  "version": "0.5.0",
+  "author": {
+    "name": "OpenCore"
+  },
+  "homepage": "https://social-sdk.dev/docs/agents/integrate-social-sdk",
+  "repository": "https://github.com/opencoredev/social-sdk",
+  "license": "MIT",
+  "keywords": ["social-media", "typescript", "sdk", "publishing", "webhooks", "oauth"],
+  "skills": "./skills/",
+  "logo": "./apps/docs/public/brand/social-sdk-mark.png"
+}

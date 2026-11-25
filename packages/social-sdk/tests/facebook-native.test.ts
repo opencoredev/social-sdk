@@ -1406,6 +1406,14 @@ describe("facebook webhook fields", () => {
       change("feed", { item: "reaction", verb: "add", reaction_type: "love" }),
     );
 
+    const unreacted = await decode(
+      change("feed", { item: "reaction", verb: "remove", reaction_type: "love" }),
+    );
+
+    const reactionChanged = await decode(
+      change("feed", { item: "reaction", verb: "edit", reaction_type: "wow" }),
+    );
+
     const edited = await decode(
       change("feed", { item: "status", verb: "edited", post_id: "123_1" }),
     );
@@ -1416,7 +1424,18 @@ describe("facebook webhook fields", () => {
 
     const comment = await decode(change("feed", { item: "comment", verb: "add" }));
 
-    assert.deepEqual([reaction.type, reaction.originalType], ["unknown", "feed.reaction.add"]);
+    assert.deepEqual(
+      [reaction.type, reaction.originalType],
+      ["reaction.received", "feed.reaction.add"],
+    );
+    assert.deepEqual(
+      [unreacted.type, unreacted.originalType],
+      ["reaction.removed", "feed.reaction.remove"],
+    );
+    assert.deepEqual(
+      [reactionChanged.type, reactionChanged.originalType],
+      ["unknown", "feed.reaction.edit"],
+    );
     assert.deepEqual([edited.type, edited.originalType], ["unknown", "feed.status.edited"]);
     assert.deepEqual(
       [shareRemoved.type, shareRemoved.originalType],

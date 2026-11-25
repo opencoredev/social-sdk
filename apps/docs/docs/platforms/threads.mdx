@@ -493,7 +493,7 @@ A raw request makes one attempt. It adds no idempotency key and records no outco
 
 ## Limits and requirements
 
-- Text is limited to 500 characters. The adapter counts ordinary Unicode code points as characters and emoji sequences by their UTF-8 byte length. For example, 125 `😀` emoji use the full budget; 126 exceed it. It does not count all non-ASCII text as bytes.
+- Text is limited to 500 characters. The adapter counts graphemes, what a reader sees as one character, so a flag, keycap, skin-tone emoji, joined family emoji or accented letter each counts as one. For example, 500 `😀` emoji fit; 501 exceed it. Meta's reference counts emoji by their UTF-8 bytes, but a live post of 400 `🙂` (1,600 bytes) has published, so the adapter does not apply the byte rule. Whether Threads counts a flag or joined emoji as one character has not been tested live.
 - Publish text, one image or video, or a carousel of two through twenty media items. Use public HTTPS URLs or configure client media staging for local sources. Document media is rejected. Declared image MIME types must be `image/jpeg` or `image/png`; video MIME types must be `video/mp4` or `video/quicktime` (MOV). Alt text is limited to 1,000 characters by the adapter's string-length check.
 - Media must meet Meta's media specifications in the table below. The adapter checks the item count and the declared MIME type before sending; Threads checks the rest after the request is sent, when it creates or processes the container. The SDK does not read, resize, or transcode media.
 - Options outside the [post options](#post-options) table are rejected as `options.unmapped`.
@@ -508,7 +508,7 @@ Sources: Meta's [posts](https://developers.facebook.com/documentation/threads/po
 | -------- | ------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Image    | Format       | JPEG or PNG                                                           | Declared MIME type: `image/jpeg` or `image/png`, else `media.format`. The file's bytes are not inspected.          |
 | Image    | File size    | 8 MB maximum                                                          | No, Threads only                                                                                                   |
-| Image    | Width        | 320 to 1,440 px; Threads scales smaller or larger images to fit       | No, Threads only                                                                                                   |
+| Image    | Width        | At least 320 px wide (scaled up); over 4,096 × 4,096 px scaled down   | No, Threads only                                                                                                   |
 | Image    | Aspect ratio | Up to 10:1                                                            | No, Threads only                                                                                                   |
 | Image    | Color space  | sRGB; Threads converts other color spaces                             | No, Threads only                                                                                                   |
 | Video    | Container    | MOV or MP4, no edit lists, `moov` atom at the front of the file       | Declared MIME type: `video/mp4` or `video/quicktime`, else `media.format`. Edit lists and atom order are not read. |
@@ -522,7 +522,7 @@ Sources: Meta's [posts](https://developers.facebook.com/documentation/threads/po
 | Video    | File size    | 1 GB maximum                                                          | No, Threads only                                                                                                   |
 | Carousel | Items        | 2 to 20 images, videos, or a mix                                      | Yes: more than 20 fails as `media.too_many`. One item publishes as a single image or video post, not a carousel.   |
 
-Source: Meta's [Threads posts](https://developers.facebook.com/documentation/threads/posts#media-specifications) page (updated October 30, 2026), media specifications and carousel limitations, checked November 4, 2026.
+Source: Meta's [Threads posts](https://developers.facebook.com/documentation/threads/posts#media-specifications) page (updated October 30, 2026), media specifications and carousel limitations, checked November 21, 2026.
 
 ### Not supported
 

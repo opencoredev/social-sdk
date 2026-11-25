@@ -599,20 +599,22 @@ function confirmWrite(result: JsonObject, operation: string, message: string): J
   return result;
 }
 
-// Meta counts emoji as UTF-8 bytes; ordinary Unicode remains character-counted.
-// RGI_Emoji includes flags, keycaps, modifiers and joined emoji sequences.
-function threadsTextLength(text: string): number {
-  let emojiBytes = 0;
+let graphemes: Intl.Segmenter | undefined;
 
-  const encoder = new TextEncoder();
+// Meta's docs describe the 500-character text limit with emoji as UTF-8 bytes, but
+// issue #174 reports that the live API published 400 "🙂" (1,600 bytes) and 400 "é"
+// on 2026-09-01. Those posts do not show how Threads counts multi-code-point
+// sequences, so the adapter counts graphemes, the most permissive reading: a flag,
+// keycap, skin-tone or joined emoji sequence counts as one. Checks at most
+// `limit + 1` segments.
+function threadsTextExceeds(text: string, limit: number): boolean {
+  graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-  const ordinary = text.replace(new RegExp("\\p{RGI_Emoji}", "gv"), (emoji) => {
-    emojiBytes += encoder.encode(emoji).length;
+  const segments = graphemes.segment(text)[Symbol.iterator]();
 
-    return "";
-  });
+  for (let read = 0; read <= limit; read += 1) if (segments.next().done === true) return false;
 
-  return Array.from(ordinary).length + emojiBytes;
+  return true;
 }
 
 type ThreadsReplyControl = NonNullable<ThreadsPublishOptions["replyControl"]>;
@@ -2886,11 +2888,8 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const media = target.content.media ?? [];
 
-        if (threadsTextLength(target.content.text ?? "") > 500)
-          add(
-            "text.too_long",
-            "Threads text is limited to 500 characters, counting emoji as UTF-8 bytes.",
-          );
+        if (threadsTextExceeds(target.content.text ?? "", 500))
+          add("text.too_long", "Threads text is limited to 500 characters, counted as graphemes.");
 
         if (media.length > 20)
           add("media.too_many", "Threads carousels support at most twenty items.");

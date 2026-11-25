@@ -7,7 +7,13 @@ import type { Guide } from "./guides";
 
 const fetched = "31 October 2026";
 
+const rechecked = "24 November 2026";
+
 const learn = "https://learn.microsoft.com/en-us/linkedin";
+
+const apiTerms = "https://www.linkedin.com/legal/l/api-terms-of-use";
+
+const marketingTerms = "https://www.linkedin.com/legal/l/marketing-api-terms";
 
 const postsApi = `${learn}/marketing/community-management/shares/posts-api`;
 
@@ -105,16 +111,63 @@ const code = (source: string) => `<pre><code>${escapeHtml(source)}</code></pre>`
 
 export const linkedinPostsApi: Guide = {
   slug: "linkedin-posts-api",
-  title: "LinkedIn Posts API: post as a member or a Page",
+  title: "LinkedIn Posts API: cost, access, and scopes",
   description:
-    "How to create LinkedIn posts with the API: Share on LinkedIn vs Community Management, scopes, author URNs, version headers, rate limits, and tested TypeScript.",
+    "Is the LinkedIn API free? What posting costs, Share on LinkedIn vs Community Management, scopes, version headers, rate limits, and tested TypeScript.",
   summary:
-    "Posting to LinkedIn through the versioned Posts API: which product and scope you need, author URNs, the request, text escaping, images, rate limits, and a TypeScript example.",
+    "Posting to LinkedIn through the versioned Posts API: whether it costs anything, which product and scope you need, author URNs, the request, text escaping, images, rate limits, and a TypeScript example.",
   heading: "The LinkedIn Posts API, explained",
   lede: "To post to LinkedIn from code, send <code>POST https://api.linkedin.com/rest/posts</code> with the author's URN, the post text, and two required headers: <code>Linkedin-Version</code> (a monthly version such as <code>202610</code>) and <code>X-Restli-Protocol-Version: 2.0.0</code>. Posting as a member needs <code>w_member_social</code> from the self-serve Share on LinkedIn product. Posting as a company Page needs <code>w_organization_social</code> from the Community Management API, which LinkedIn reviews, plus a Page role. A created post comes back as a URN in the <code>x-restli-id</code> header.",
   published: "2026-10-31",
-  updated: "2026-10-31",
+  updated: "2026-11-24",
   content: `
+          <h2 id="is-it-free">Is the LinkedIn API free?</h2>
+          <p>
+            For now, yes. LinkedIn's standard API Terms of Use say LinkedIn "currently does not
+            charge a fee for use of the APIs", and that it may start charging in the future
+            (<a href="${apiTerms}">API Terms of Use</a>, section 8.2). What limits you is access:
+            which products LinkedIn grants your app, how many calls each allows, and whether your
+            app meets the terms' eligibility criteria for self-serve APIs (section 1.4). A
+            separate agreement with LinkedIn can replace those terms (section 1.2).
+          </p>
+          <table>
+            <thead><tr><th>Product</th><th>How you get it, and what it allows</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Share on LinkedIn</td>
+                <td>Self-serve: add it to your app in the Developer Portal. Grants
+                <code>w_member_social</code>, which lets you post as the member who authorized
+                your app (<a href="${shareOnLinkedIn}">Share on LinkedIn</a>)</td>
+              </tr>
+              <tr>
+                <td>Sign In with LinkedIn using OpenID Connect</td>
+                <td>Self-serve. Gives you the member's ID, which you need for their author URN
+                (<a href="${signIn}">Sign In with LinkedIn</a>)</td>
+              </tr>
+              <tr>
+                <td>Community Management API</td>
+                <td>Vetted: LinkedIn reviews the request. The route this guide covers for posting
+                as a company Page (the Advertising API also grants
+                <code>w_organization_social</code>). It starts in a rate-limited Development tier;
+                see <a href="#access">access tiers</a> (<a href="${increasingAccess}">increasing access</a>)</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            Section 8.2 of the standard terms also says you may not charge your own users
+            incremental fees for access to LinkedIn content or the APIs; LinkedIn's Marketing API
+            Terms deal with markups on marketing services separately. Section 3.1 bars accessing,
+            storing, displaying, or passing on LinkedIn content obtained by scraping, crawling, or
+            any other route outside the APIs, including content you got from a third party.
+          </p>
+          <p>
+            Social SDK doesn't add a per-post charge. It is an MIT-licensed library that calls
+            LinkedIn from your own server with a member's OAuth access token that carries the
+            needed scope (and, for Page posts, an eligible Page role); the
+            <a href="/docs/platforms/linkedin">LinkedIn platform page</a> lists what its adapter
+            covers.
+          </p>
+
           <h2 id="posts-api">What the Posts API is</h2>
           <p>
             The Posts API at <code>/rest/posts</code> is LinkedIn's current endpoint for creating
@@ -130,8 +183,10 @@ export const linkedinPostsApi: Guide = {
             LinkedIn publishes a new version each month, supports each one for at least a year, and
             expects every call to name one: it doesn't fall back to the latest version
             (<a href="${versioning}">versioning</a>). The latest version on
-            ${fetched} was <code>202610</code>. Version <code>202511</code> sunsets on 16 November
-            2026, so code pinned to it stops working then.
+            ${rechecked} was <code>202611</code>. The examples below pin <code>202610</code>,
+            which is inside that one-year window. LinkedIn's current deprecation notice says
+            version <code>202601</code> sunsets on 15 January 2027, so code pinned to it stops
+            working then.
           </p>
 
           <h2 id="member-or-page">Posting as a member or as a Page</h2>
@@ -308,18 +363,29 @@ export const linkedinPostsApi: Guide = {
 
           <h2 id="faq">Common questions</h2>
           <dl class="faq">
+            <dt>Is the LinkedIn API free?</dt>
+            <dd>
+              LinkedIn's standard API Terms of Use say it doesn't currently charge a fee for API
+              use but may in the future. Access is the limit: member posting is self-serve, and
+              Page posting needs <code>w_organization_social</code> (from the Community Management
+              or Advertising API, both reviewed) plus an eligible Page role.
+            </dd>
             <dt>Can I post to LinkedIn with the API without review?</dt>
             <dd>
               As a member, yes: Share on LinkedIn is a self-serve product that grants
-              <code>w_member_social</code>. Posting as a Page needs the Community Management API,
-              which LinkedIn approves, starting with the Development tier.
+              <code>w_member_social</code>. Posting as a Page needs <code>w_organization_social</code>
+              from a reviewed product: this guide covers the Community Management API, which
+              starts in the Development tier (the Advertising API also grants it).
             </dd>
             <dt>Should I use ugcPosts or the Posts API?</dt>
             <dd>The Posts API (<code>/rest/posts</code>). LinkedIn says it replaces ugcPosts, and it is the versioned endpoint.</dd>
             <dt>Can I schedule LinkedIn posts through the API?</dt>
             <dd>
               Not with a publish time. A create call publishes immediately, so schedule in your own
-              job runner and make the call at the chosen time.
+              job runner and make the call when the post is due, for example from a delayed
+              <a href="/docs/integrations/inngest">Inngest</a> function or a
+              <a href="/docs/integrations/nextjs#schedule-posts">Next.js cron route</a> that
+              publishes due posts on each run.
             </dd>
             <dt>How do I turn a post URN into a URL?</dt>
             <dd>Put it after <code>https://www.linkedin.com/feed/update/</code>, as in LinkedIn's example <code>https://www.linkedin.com/feed/update/urn:li:ugcPost:{id}/</code>.</dd>
@@ -333,10 +399,12 @@ export const linkedinPostsApi: Guide = {
           </dl>
 
           <h2 id="sources">Sources</h2>
-          <p>LinkedIn's pages on Microsoft Learn, read on ${fetched}, with the update date each page showed:</p>
+          <p>LinkedIn's pages on Microsoft Learn, read on ${fetched} and rechecked on ${rechecked}, with the update date each page showed, plus LinkedIn's API terms:</p>
           <ul>
+            <li><a href="${apiTerms}">API Terms of Use</a> (last revised 13 December 2022, read ${rechecked}): sections 1.2 and 1.4 (scope, self-serve eligibility), 3.1 (content obtained outside the APIs), 8.2 (Costs and Fees)</li>
+            <li><a href="${marketingTerms}">Marketing API Terms</a> (last revised 25 July 2025, read ${rechecked}): section 5.1, markup fees</li>
             <li><a href="${postsApi}">Posts API</a> (updated 13 May 2026): permissions, roles, creating and deleting posts, URNs, view URLs, mentions</li>
-            <li><a href="${versioning}">Marketing API versioning</a> (updated 15 October 2026): version header, monthly cadence, latest version</li>
+            <li><a href="${versioning}">Marketing API versioning</a> (updated 16 November 2026): version header, monthly cadence, latest version, deprecation notice</li>
             <li><a href="${littleText}">little text format</a> (updated 16 October 2025): reserved characters, mentions, hashtags</li>
             <li><a href="${imagesApi}">Images API</a> (updated 24 June 2026): initializeUpload, formats, statuses</li>
             <li><a href="${videosApi}">Videos API</a> (updated 2 March 2026): multipart upload, ETags, finalizeUpload</li>

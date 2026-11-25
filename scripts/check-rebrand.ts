@@ -2,15 +2,7 @@ import { readdir } from "node:fs/promises";
 
 const decoder = new TextDecoder();
 
-const allowlistedPaths = new Set([
-  "LICENSE",
-  "planning/START_HERE_AGENT_PROMPT.md",
-  "planning/SOCIAL_SDK_MASTER_PLAN.md",
-  "planning/landing-page-handoff.md",
-  "planning/rebrand-inventory.md",
-  // Internal removal report names the retired services; it is not shipped.
-  "planning/release-readiness.md",
-]);
+const allowlistedPaths = new Set(["LICENSE"]);
 
 const ignoredPrefixes = [
   ".git/",

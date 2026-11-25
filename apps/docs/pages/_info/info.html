@@ -352,9 +352,24 @@
       html.dark [stroke="#1c1a17"] {
         stroke: var(--ink);
       }
+      .skip-link {
+        position: absolute;
+        top: 0;
+        left: -999px;
+        z-index: 100;
+        padding: 8px 16px;
+        background: var(--ink);
+        color: var(--paper);
+        font-weight: 560;
+        text-decoration: none;
+      }
+      .skip-link:focus {
+        left: 0;
+      }
     </style>
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
       <defs>
         <filter id="roughen" x="-5%" y="-5%" width="110%" height="110%">
@@ -424,7 +439,7 @@
         </div>
       </nav>
 
-      <main>
+      <main id="main">
         <header>
           <span class="kicker">@kicker</span>
           <h1>@heading</h1>
@@ -454,6 +469,7 @@
             <a href="/terms">Terms</a>
             <a href="/docs">Docs</a>
             <a href="/guides">Guides</a>
+            <a href="/tools">Tools</a>
             <a href="/blog">Blog</a>
             <a href="/cloud">Cloud</a>
           </div>

@@ -192,8 +192,8 @@ interface OAuthSession {
   bufferVerifier?: string | undefined;
 }
 
-export function startOAuth(session: OAuthSession): Response {
-  const pkce = createBufferPkce();
+export async function startOAuth(session: OAuthSession): Promise<Response> {
+  const pkce = await createBufferPkce();
   const state = crypto.randomUUID();
   session.bufferState = state;
   session.bufferVerifier = pkce.codeVerifier;

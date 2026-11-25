@@ -13,6 +13,7 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import type { JsonObject, JsonValue } from "../core/types.js";
+import type { SocialEventType } from "./event-types.js";
 
 export type WebhookVerificationMethod =
   | "hmac-sha1"
@@ -117,33 +118,7 @@ export interface SocialEvent {
   readonly id: string;
   readonly backend: string;
   readonly provider: "zernio" | "post-for-me" | DirectWebhookPlatform;
-  readonly type:
-    | "publication.updated"
-    | "post.removed"
-    | "backend-record.deleted"
-    | "account.updated"
-    | "message.received"
-    /** Zernio: a sent message changed state (`message.sent`, `delivered`, `read`, `failed`, `edited`, `deleted`). */
-    | "message.updated"
-    | "reaction.received"
-    /** Zernio: a Facebook or Google Business review arrived or changed (`review.new`, `updated`, `deleted`, `restored`). */
-    | "review.updated"
-    | "comment.received"
-    | "mention.received"
-    | "post.published"
-    | "comment.updated"
-    | "comment.removed"
-    | "reaction.received"
-    | "post.reshared"
-    | "message.postback"
-    | "message.reaction"
-    | "message.read"
-    | "message.referral"
-    | "message.edited"
-    | "insights.updated"
-    /** Zernio: a conversation started or its handover control changed (`conversation.started`, `conversation.control_changed`). */
-    | "conversation.updated"
-    | "unknown";
+  readonly type: SocialEventType;
   readonly identity: "provider-event-id" | "body-digest";
   readonly originalType: string;
   readonly occurredAt?: string;
@@ -1041,6 +1016,10 @@ function facebookFeedType(value: JsonField): SocialEvent["type"] {
   const verb = value["verb"];
 
   if (item === "comment" && verb === "add") return "comment.received";
+
+  if (item === "reaction" && verb === "add") return "reaction.received";
+
+  if (item === "reaction" && verb === "remove") return "reaction.removed";
 
   if (
     verb === "remove" &&

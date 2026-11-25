@@ -13,7 +13,7 @@ npm start
 
 The console prints the mock destination outcomes. A `published` outcome here is simulated, not evidence of a live platform request.
 
-The source is copied from [the mock quickstart](../snippets/mock-quickstart.ts). The package is pinned so a dependency update cannot silently change the lesson.
+The source is copied from [the mock quickstart](../snippets/mock-quickstart.ts). The package is pinned to an exact version so a dependency update cannot silently change the lesson; each release updates the pin to the new version.
 
 ## What to inspect
 

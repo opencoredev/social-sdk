@@ -6,11 +6,11 @@ import type { Guide } from "./guides";
 
 const fetched = "28 October 2026";
 
-const meta = "https://developers.facebook.com/docs/threads";
+const meta = "https://developers.facebook.com/documentation/threads";
 
 const createContainer = `curl -X POST "https://graph.threads.net/v1.0/<THREADS_USER_ID>/threads" \
   -d "media_type=TEXT" \
-  -d "text=Hello from the Threads API" \
+  --data-urlencode "text=Hello from the Threads API" \
   -d "access_token=<ACCESS_TOKEN>"
 # {"id": "<CONTAINER_ID>"}`;
 
@@ -58,8 +58,39 @@ export const threadsApi: Guide = {
   heading: "The Threads API, explained",
   lede: "The Threads API is Meta's official REST API for Threads. It lets your app publish text, images, video, and carousels for a Threads user who authorized it, and read their posts, replies, and insights. Publishing takes two calls, a profile can publish 250 posts a day through it, and you need App Review before users outside your app's roles can grant access.",
   published: "2026-10-28",
-  updated: "2026-10-28",
+  updated: "2026-11-21",
   content: `
+          <h2 id="how-to-publish">How to publish a post with the Threads API</h2>
+          <ol>
+            <li>
+              Get a Threads user access token with the <code>threads_basic</code> and
+              <code>threads_content_publish</code> permissions. Until your app passes App Review
+              and is published, only testers you invite can grant them.
+            </li>
+            <li>
+              Create a media container: <code>POST /{threads-user-id}/threads</code> with
+              <code>media_type=TEXT</code> and <code>text</code>, or <code>IMAGE</code> or
+              <code>VIDEO</code> with a public <code>image_url</code> or <code>video_url</code>.
+              The response is a container ID.
+            </li>
+            <li>
+              For an image or video, wait until the container's <code>status</code> is
+              <code>FINISHED</code>. Meta suggests about 30 seconds.
+            </li>
+            <li>
+              Publish it: <code>POST /{threads-user-id}/threads_publish</code> with
+              <code>creation_id</code> set to the container ID. The response is the new post's ID.
+            </li>
+          </ol>
+          <p>
+            A post holds up to 500 characters of text and at most 5 unique links, and a profile can
+            publish 250 posts through the API in any rolling 24 hours. The
+            <a href="#publish">publishing section</a> has the exact requests.
+            <a href="#social-sdk">Social SDK</a> creates the container, checks its status, and
+            publishes in one TypeScript call when the media is ready. While Meta is still
+            processing it, the call returns <code>processing</code> so you can check again later.
+          </p>
+
           <h2 id="what-it-does">What the Threads API does</h2>
           <p>
             Meta opened the Threads API to all developers on
@@ -179,8 +210,9 @@ export const threadsApi: Guide = {
               <tr><td>Deletions</td><td>100 per 24 hours</td></tr>
               <tr><td>Location searches</td><td>500 per 24 hours</td></tr>
               <tr><td>API calls per app and user</td><td>4,800 × the account's impressions in the last 24 hours, counting at least 10 impressions</td></tr>
-              <tr><td>Text</td><td>500 characters, with emojis counted by their UTF-8 bytes</td></tr>
-              <tr><td>Images</td><td>JPEG or PNG, up to 8 MB; Meta rescales widths outside 320 to 1440 pixels</td></tr>
+              <tr><td>Text</td><td>500 characters. Meta's docs count emojis by their UTF-8 bytes, but a post of 400 🙂 (1,600 bytes) has published. Social SDK counts graphemes; whether Threads counts a flag or joined emoji as one character has not been tested live</td></tr>
+              <tr><td>Links</td><td>5 unique links per post; since 22 December 2025, a container with more fails to create</td></tr>
+              <tr><td>Images</td><td>JPEG or PNG, up to 8 MB; Meta scales images narrower than 320 pixels up and larger than 4096 × 4096 down</td></tr>
               <tr><td>Video</td><td>MOV or MP4, up to 5 minutes and 1 GB, 23 to 60 fps</td></tr>
             </tbody>
           </table>
@@ -248,10 +280,10 @@ export const threadsApi: Guide = {
           </dl>
 
           <h2 id="sources">Sources</h2>
-          <p>Meta's pages, read on ${fetched}, with the update date each page showed:</p>
+          <p>Meta's pages, read on ${fetched} and checked again on 21 November 2026, with the update date each page showed:</p>
           <ul>
             <li><a href="${meta}/overview">Threads API overview</a> (updated 22 December 2025): purpose, hosts, rate limits, media specifications</li>
-            <li><a href="${meta}/posts">Threads posts</a> (updated 13 October 2026): permissions, containers, publishing, carousels</li>
+            <li><a href="${meta}/posts">Threads posts</a> (updated 30 October 2026): permissions, containers, publishing, carousels, link limit</li>
             <li><a href="${meta}/get-started">Get started</a> (updated 30 June 2026): app setup, permissions, testers, grants</li>
             <li><a href="${meta}/get-started/long-lived-tokens">Long-lived access tokens</a> (updated 27 March 2025)</li>
             <li><a href="${meta}/troubleshooting">Troubleshooting</a> (updated 14 July 2025): container statuses and quota checks</li>

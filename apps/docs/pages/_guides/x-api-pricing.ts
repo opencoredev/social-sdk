@@ -5,7 +5,9 @@
 import { escapeHtml } from "../_blog/render";
 import type { Guide } from "./guides";
 
-const fetched = "29 October 2026";
+const fetched = "22 November 2026";
+
+const tested = "29 October 2026";
 
 const docs = "https://docs.x.com";
 
@@ -18,6 +20,8 @@ const rateLimits = `${docs}/x-api/fundamentals/rate-limits`;
 const usage = `${docs}/x-api/fundamentals/post-cap`;
 
 const changelog = `${docs}/changelog`;
+
+const activity = `${docs}/x-api/activity/introduction`;
 
 const createPost = `curl -X POST "https://api.x.com/2/tweets" \\
   -H "Authorization: Bearer <USER_ACCESS_TOKEN>" \\
@@ -58,15 +62,15 @@ const code = (source: string) => `<pre><code>${escapeHtml(source)}</code></pre>`
 
 export const xApiPricing: Guide = {
   slug: "x-api-pricing",
-  title: "X API pricing in 2026: costs, free credits, limits",
+  title: "X (Twitter) API pricing 2026: costs, free tier, limits",
   description:
-    "X API pricing on pay-per-use credits: what a post and a read cost, whether a free tier exists, free credits, rate limits, and a TypeScript example.",
+    "X (Twitter) API pricing on pay-per-use credits: what posting a tweet and reading cost, monthly examples, whether a free tier exists, and rate limits.",
   summary:
-    "X API pricing on pay-per-use credits: what a post and a read cost, the URL surcharge, free credits for new accounts, spending limits, posting rate limits, and a TypeScript example.",
-  heading: "X API pricing, explained",
-  lede: "The X API has no subscription tiers for new developers. Since February 2026 it bills pay-per-use: you buy credits in the Developer Console and each request deducts from them. On X's pricing page, read 29 October 2026, creating a post costs $0.015, or $0.20 if the post contains a URL, and reading a post costs $0.005. New accounts can earn up to $70 in free credits, but there is no general free tier. X says Public Utility Apps keep free access.",
+    "X (formerly Twitter) API pricing on pay-per-use credits: what a post and a read cost, the URL surcharge, monthly cost examples, webhook event billing, free credits for new accounts, spending limits, posting rate limits, and a TypeScript example.",
+  heading: "X (Twitter) API pricing, explained",
+  lede: "The X API, formerly the Twitter API, has no subscription tiers for new developers. Since February 2026 it bills pay-per-use: you buy credits in the Developer Console and each request deducts from them. On X's pricing page, read 22 November 2026, creating a post costs $0.015, or $0.20 if the post contains a URL, and reading a post costs $0.005. New accounts can earn up to $70 in free credits, but there is no general free tier. X says Public Utility Apps keep free access.",
   published: "2026-10-29",
-  updated: "2026-10-29",
+  updated: "2026-11-22",
   content: `
           <p>
             Prices on this page are quoted from X's documentation as read on ${fetched}. X says
@@ -122,6 +126,10 @@ export const xApiPricing: Guide = {
             </tbody>
           </table>
           <p>
+            The table lists the actions a posting app uses. X's pricing page also prices list,
+            bookmark, privacy, post-count, and trends requests, at $0.005 to $0.010 per request.
+          </p>
+          <p>
             The URL surcharge drives most posting budgets: a post with a link costs over 13
             times a plain post. At these rates, an account that posts 10 times a day for 30 days
             spends $4.50 on 300 plain posts, or $60 if every post carries a link. If links
@@ -148,6 +156,53 @@ export const xApiPricing: Guide = {
             authenticated owner. That makes a dashboard of your own account five times cheaper
             per post than reading someone else's timeline. Reading posts from other accounts is
             the expensive part of most X apps, and it is where the 3 million cap applies.
+          </p>
+
+          <h2 id="monthly-cost">What the X API costs per month</h2>
+          <p>
+            There is no monthly fee: a month costs whatever your requests add up to. Some
+            examples at the rates above, for one 30-day month:
+          </p>
+          <table>
+            <thead><tr><th>Usage</th><th>Monthly cost</th></tr></thead>
+            <tbody>
+              <tr><td>10 plain posts a day (300 posts)</td><td>$4.50</td></tr>
+              <tr><td>10 posts a day, each with a link (300 posts)</td><td>$60.00</td></tr>
+              <tr><td>Reading 10,000 different posts from other accounts</td><td>$50.00</td></tr>
+              <tr><td>Reading 10,000 of your own posts, mentions, or likes (Owned Reads)</td><td>$10.00</td></tr>
+            </tbody>
+          </table>
+          <p>
+            Repeat reads of the same post within one UTC day are normally charged once (X calls
+            this a soft guarantee that can fail in edge cases), and the same post read on a new
+            day is charged again. A new account may also
+            get <a href="#free-tier">free credits</a> that cover part of its first months.
+          </p>
+          <p>
+            To try your own numbers, the <a href="/tools/api-cost-calculator">social media API
+            cost calculator</a> starts from these rates and lets you change every one.
+          </p>
+
+          <h2 id="webhooks">Are X API webhooks billed?</h2>
+          <p>
+            Yes. Events delivered through the X Activity API are billed per event, with the
+            same once-per-UTC-day deduplication as other resources
+            (<a href="${activity}">X Activity API</a>, <a href="${pricing}">pricing</a>). Some
+            per-event prices:
+          </p>
+          <table>
+            <thead><tr><th>Event</th><th>Price per event</th></tr></thead>
+            <tbody>
+              <tr><td><code>post.create</code></td><td>$0.005</td></tr>
+              <tr><td><code>follow.follow</code>, <code>follow.unfollow</code></td><td>$0.010</td></tr>
+              <tr><td><code>dm.received</code>, <code>chat.received</code></td><td>$0.010</td></tr>
+              <tr><td><code>dm.sent</code>, <code>chat.sent</code></td><td>Not billed</td></tr>
+            </tbody>
+          </table>
+          <p>
+            X's pages disagree on <code>post.delete</code>: the pricing table lists it as not
+            billed, while the Activity API page bills every delivered post event, deletes
+            included. Check the Developer Console before you budget for it.
           </p>
 
           <h2 id="free-tier">Is there a free X API tier?</h2>
@@ -259,7 +314,7 @@ export const xApiPricing: Guide = {
           ${code(sdkExample)}
           <p>
             We type-checked this example against <code>@opencoredev/social-sdk</code> 0.5.0 from
-            npm and ran it on ${fetched} with a stub <code>fetch</code> standing in for
+            npm and ran it on ${tested} with a stub <code>fetch</code> standing in for
             <code>api.x.com</code>. It made one <code>POST /2/tweets</code> call with the user
             token and printed the new post ID. When the stub returned no post ID, it printed the
             "check before retrying" branch instead. It runs on Node.js 22.12 or later and Bun.
@@ -276,6 +331,18 @@ export const xApiPricing: Guide = {
 
           <h2 id="faq">Common questions</h2>
           <dl class="faq">
+            <dt>Is the Twitter API the same as the X API?</dt>
+            <dd>
+              Yes. Twitter became X in 2023, and the Twitter API became the X API. The v2
+              endpoints keep their names, such as <code>POST /2/tweets</code> to create a post,
+              and are documented at docs.x.com with pay-per-use billing.
+            </dd>
+            <dt>How much does the X API cost per month?</dt>
+            <dd>
+              There is no fixed monthly price. Prepaid credits pay for each write request and
+              each resource a read returns, so 300 plain posts in a month cost $4.50 and 300 posts with links cost $60. See
+              <a href="#monthly-cost">monthly examples</a>.
+            </dd>
             <dt>How much does it cost to post a tweet with the API?</dt>
             <dd>
               $0.015 per post on X's pricing page as read on ${fetched}, or $0.20 if the post
@@ -311,6 +378,7 @@ export const xApiPricing: Guide = {
           <ul>
             <li><a href="${pricing}">X API pay-per-usage pricing and credits</a>: read and write prices, Owned Reads, deduplication, the 3 million post-read cap, auto-recharge, spending limits, xAI credits</li>
             <li><a href="${freeCredits}">Free credit incentives</a>: the $20 and up-to-$50 credits, eligibility, expiry</li>
+            <li><a href="${activity}">X Activity API</a>: webhook event delivery, billed per event</li>
             <li><a href="${usage}">Usage and billing</a>: tracked endpoints and the failed-request FAQ</li>
             <li><a href="${rateLimits}">Rate limits</a>: per-app and per-user limits for posting, deleting, search, and timelines</li>
             <li><a href="${docs}/x-api/getting-started/getting-access">Getting access</a>: Developer Console, apps, and credentials</li>

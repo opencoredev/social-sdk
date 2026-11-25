@@ -125,7 +125,8 @@ export const socialMediaApis: Guide = {
             <a href="${tiktokPosting}">TikTok Content Posting API</a>, and
             <a href="${youtubeQuota}">YouTube quota costs</a>, read ${fetched}. The X, Bluesky,
             and Threads rows summarise our guides to those APIs, which cite their sources and
-            dates.
+            dates. The <a href="/tools/platform-limits">post limits checker</a> puts every
+            platform's text, image, and video limits in one table and checks a post against them.
           </p>
           <p>
             Native APIs also differ in shape. Instagram and Threads publish in two steps (create
