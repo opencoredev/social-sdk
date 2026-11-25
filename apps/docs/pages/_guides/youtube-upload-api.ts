@@ -31,6 +31,8 @@ const audits = "https://developers.google.com/youtube/data/guides/quota_and_comp
 
 const uploadDefaults = "https://support.google.com/youtube/answer/2660027";
 
+const privacyHelp = "https://support.google.com/youtube/answer/157177";
+
 const serverSideAuth = `${yt}/guides/auth/server-side-web-apps`;
 
 const ytAuth = `${yt}/guides/authentication`;
@@ -167,7 +169,8 @@ export const youtubeUploadApi: Guide = {
           </p>
           <p>
             If you leave out <code>privacyStatus</code>, the video is public, although a
-            creator's account settings can make some uploads private. To schedule a release, upload with
+            creator's account settings can make some uploads private (Google's revision note
+            points to its <a href="${privacyHelp}">video privacy settings help page</a>). To schedule a release, upload with
             <code>privacyStatus</code> set to <code>private</code> and an ISO 8601
             <code>publishAt</code> time, and YouTube makes the video public at that time.
           </p>
@@ -233,7 +236,8 @@ export const youtubeUploadApi: Guide = {
             If an upload still comes out private, compare the <code>status.privacyStatus</code> you
             sent with the one in the response. The channel's
             <a href="${uploadDefaults}">upload defaults</a> apply only to uploads made in a browser
-            on youtube.com, not to API uploads.
+            on youtube.com, not to API uploads, so check the account-level privacy rules on the
+            help page linked above.
           </p>
 
           <h2 id="resumable">Resumable uploads, step by step</h2>
@@ -377,7 +381,9 @@ export const youtubeUploadApi: Guide = {
               thumbnail might not be applied. Reading <code>processingDetails</code> with
               <a href="${videosList}"><code>videos.list</code></a> needs the owner's token with a
               read-capable scope such as <code>youtube.readonly</code>; <code>youtube.upload</code>
-              alone can't call it, though it can call <code>thumbnails.set</code>.
+              alone can't call it, though it can call <code>thumbnails.set</code>. The account also
+              needs permission to set custom thumbnails; without it, <code>thumbnails.set</code>
+              returns <code>403 forbidden</code>.
             </dd>
             <dt>Do I need an API audit to upload public videos?</dt>
             <dd>
