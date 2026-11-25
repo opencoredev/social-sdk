@@ -204,12 +204,17 @@ export const posthogScript = `(() => {
         }
         return event;
       },
+      // Until the SDK has loaded, window.posthog is the loader's stub, and an
+      // event captured there is lost if the visitor leaves first. So events keep
+      // waiting in pending and queued, which pagehide carries to the next page.
+      loaded: () => {
+        started = true;
+        pending.splice(0).forEach(([path, url]) => track(path, url));
+        queued.splice(0).forEach(([event, properties]) =>
+          window.posthog.capture(event, properties, { send_instantly: true }),
+        );
+      },
     });
-    started = true;
-    pending.forEach(([path, url]) => track(path, url));
-    queued.forEach(([event, properties]) =>
-      window.posthog.capture(event, properties, { send_instantly: true }),
-    );
   };
   // astro:page-load fires on the first load and after every client-router swap.
   visit();
