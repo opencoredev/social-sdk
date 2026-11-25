@@ -11,7 +11,7 @@ Social SDK targets server-side TypeScript applications on Node.js 22.12 or later
 @opencoredev/social-sdk
 ```
 
-Import the core client from the package root. Import each direct integration or managed backend from its documented subpath so unrelated adapters do not enter the application bundle.
+Import the core client from the package root. Import each direct integration or managed backend from its documented subpath so unrelated adapters do not enter the application bundle. Every JavaScript entry point has `import` and `default` conditions that point at the same ES module. `@opencoredev/social-sdk/package.json` is also exported, so tools can read the installed package metadata, such as its version.
 
 ## Check your setup
 
