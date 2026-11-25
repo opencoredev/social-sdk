@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContext, runInContext } from "node:vm";
 
-import { databuddyScript, posthogScript } from "./analytics";
+import { headScripts } from "./analytics";
 
 type Sent = [string, Record<string, string>];
 
@@ -114,10 +114,10 @@ function load(path: string) {
   });
 
   runInContext("window = globalThis;", context);
-  // The head order of a production page: PostHog's snippet, then Databuddy's. The
-  // page never fires load here, so PostHog itself never starts.
-  runInContext(posthogScript, context);
-  runInContext(databuddyScript, context);
+
+  // Both head scripts, in production order. The page never fires load here, so
+  // the product analytics snippet never starts its SDK.
+  for (const content of headScripts) runInContext(content, context);
 
   const tracker = () => appended.find((tag) => tag.src === "/_p/s.js");
 

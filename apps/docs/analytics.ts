@@ -330,11 +330,13 @@ export const posthogScript = `(() => {
 })();`;
 
 /** Adds the PostHog snippet and the Databuddy tags to a standalone HTML page in production builds. */
+/** Every page's analytics scripts, in the order its <head> runs them. */
+export const headScripts = [posthogScript, databuddyScript];
+
 export function withAnalytics(html: string): string {
   if (!import.meta.env.PROD) return html;
 
-  return html.replace(
-    "</head>",
-    `<script>${posthogScript}</script>\n  <script>${databuddyScript}</script>\n  </head>`,
-  );
+  const tags = headScripts.map((content) => `<script>${content}</script>\n  `).join("");
+
+  return html.replace("</head>", `${tags}</head>`);
 }
