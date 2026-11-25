@@ -872,7 +872,7 @@ test("[feature:pinterest.boards] native.listBoards pages with bookmark, page_siz
   assert.equal(page.nextCursor, "ZmlsdGVyOjE=");
   assert.equal(page.items.length, 1);
   assert.equal(page.items[0]?.["id"], "549755885175");
-  assert.equal(page.items[0]?.["owner"], undefined);
+  assert.deepEqual(page.items[0]?.["owner"], { username: "fixture_maker" });
   assert.equal(calls[0]?.url.searchParams.get("page_size"), "100");
   assert.equal(calls[0]?.url.searchParams.get("privacy"), "PROTECTED");
   assert.equal(calls[0]?.url.searchParams.get("bookmark"), "abc");
@@ -1590,4 +1590,35 @@ test("a created Pin whose save and release both fail stays published and reports
   assert.ok(outcome.state === "published");
   assert.equal(outcome.post.postId, fixtures.pin.id);
   assert.equal(outcome.backendState, "CREATED_WORKFLOW_SAVE_FAILED,CLAIM_RELEASE_FAILED");
+});
+
+test("board owners are kept so group boards owned by someone else can be told apart", async () => {
+  const { fetch } = route({
+    ["GET " + api + "/v5/boards"]: [
+      json({
+        items: [
+          ...fixtures.boardsPage.items,
+          {
+            id: "13",
+            name: "Shared recipes",
+            privacy: "PUBLIC",
+            collaborator_count: 2,
+            owner: { username: "another_maker" },
+          },
+          { id: "14", name: "Odd owner", privacy: "PUBLIC", owner: { username: 7 } },
+        ],
+      }),
+    ],
+  });
+
+  const page = await client(fetch).adapter.native!.listBoards({ account, context });
+
+  assert.deepEqual(
+    page.items.map((board) => [board["id"], board["owner"]]),
+    [
+      ["549755885175", { username: "fixture_maker" }],
+      ["13", { username: "another_maker" }],
+      ["14", undefined],
+    ],
+  );
 });

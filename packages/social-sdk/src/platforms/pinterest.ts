@@ -1197,7 +1197,7 @@ export function pinterest(
             maxItems: 5,
             allowedMimeTypes: imageMimeTypes,
           },
-          notes: `Creates an image Pin, or a carousel Pin of 2 to 5 images, on options.boardId. content.text is the description.${sandbox ? " Requests go to the sandbox, where Pins are visible only to their owner." : ""}`,
+          notes: `Creates an image Pin, or a carousel Pin of 2 to 5 images, on options.boardId. content.text is the description.${imageBase64 ? " Blob images are sent as base64 and must be JPEG or PNG; the other types apply to HTTPS URLs." : ""}${sandbox ? " Requests go to the sandbox, where Pins are visible only to their owner." : ""}`,
         },
         sandbox
           ? unavailable(
@@ -1212,7 +1212,8 @@ export function pinterest(
               formats: ["video" as const],
               requiredScopes: pinWriteScopes,
               constraints: {
-                // The cover thumbnail is an HTTPS URL; the video itself must be a Blob.
+                // The video itself must be a Blob. Core checks the cover thumbnail's source
+                // against this list too, so the HTTPS URL it needs is listed as well.
                 mediaSources: ["blob" as const, "https-url" as const],
                 maxItems: 1,
                 maxBytes: maxVideoBytes,
@@ -1537,7 +1538,15 @@ export function pinterest(
         // includes secret boards when it holds boards:read_secret. Keep only boards Pinterest marks
         // public or protected, so a missing or new privacy value is never passed through.
         const items = array(result["items"])
-          .map((board) => publicFields(board, boardFields))
+          .map((board): JsonObject => {
+            const fields = publicFields(board, boardFields);
+            const owner = isJsonObject(board) ? board["owner"] : undefined;
+            const username = isJsonObject(owner) ? owner["username"] : undefined;
+
+            // Pins can only be created on boards the account owns, and the list also holds
+            // group boards it collaborates on, so keep the owner for the caller to compare.
+            return isString(username) ? { ...fields, owner: { username } } : fields;
+          })
           .filter((board) => board["privacy"] === "PUBLIC" || board["privacy"] === "PROTECTED");
 
         if (items.some((board) => !numericId(board["id"])))
