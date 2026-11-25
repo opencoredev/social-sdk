@@ -632,15 +632,20 @@ export function pinterest(
     }),
   });
 
-  /** `POST /v5/pins`. A 2xx answer without a numeric Pin ID leaves the write unconfirmed. */
-  const createPin = (pin: JsonObject, context: AdapterOperationContext): Promise<string> =>
-    acknowledged("pinterest.posts.publish", request("/pins", context, pin), (body) => {
+  /** `POST /v5/pins`. Only a 200 or 201 with a numeric Pin ID confirms the write. */
+  const createPin = async (pin: JsonObject, context: AdapterOperationContext): Promise<string> => {
+    const answer = await exchange("/pins", context, pin);
+
+    // Pinterest documents 200 and 201 for a created Pin; any other 2xx is unconfirmed.
+    return acknowledged("pinterest.posts.publish", Promise.resolve(answer.body), (body) => {
       const id = object(body)["id"];
 
-      if (!numericId(id)) throw new Error("Pinterest returned no Pin ID");
+      if ((answer.status !== 200 && answer.status !== 201) || !numericId(id))
+        throw new Error("Pinterest did not confirm the Pin");
 
       return id;
     });
+  };
 
   /** A failed outcome that keeps the workflow reference, so the upload can be continued. */
   const failedVideo = (
@@ -715,7 +720,7 @@ export function pinterest(
       throw error;
     }
 
-    if (!isJsonObject(media))
+    if (!isJsonObject(media) || !isString(media["media_id"]) || !isString(media["status"]))
       return failedVideo(workflow, account, unreadableMedia(), true, fromPublish);
 
     const status = media["status"];
@@ -789,10 +794,17 @@ export function pinterest(
       // No Pin was created. A rate limit, an expired or under-scoped token, or an unsent request
       // can be continued later; any other stated rejection ends the workflow.
       const continuable = continuableCodes.has(error.code);
+      const rejected = failedVideo(workflow, account, error, continuable, fromPublish);
 
-      await workflows.update(workflow.id, { stage: continuable ? "processing" : "failed" });
+      try {
+        await workflows.update(workflow.id, { stage: continuable ? "processing" : "failed" });
+      } catch {
+        // The row still says `creating`, so later calls report unknown and never resend. Pinterest
+        // did reject this request; a caller who has checked the board can reset the row.
+        return { ...rejected, backendState: "WORKFLOW_SAVE_FAILED" };
+      }
 
-      return failedVideo(workflow, account, error, continuable, fromPublish);
+      return rejected;
     }
 
     const outcome = published(account, pinId, delivery);
@@ -966,14 +978,8 @@ export function pinterest(
       retryDisposition: { kind: "never" },
     });
 
-  /**
-   * `POST /v5/media`, then the documented multipart POST of the file to `upload_url`.
-   * `confirmed` is false when the file was sent and the storage answer never arrived.
-   */
-  const uploadVideo = async (
-    video: NonNullable<PinPlan["video"]>,
-    context: AdapterOperationContext,
-  ): Promise<{ readonly mediaId: string; readonly confirmed: boolean }> => {
+  /** `POST /v5/media`. Registering an upload sends no file and creates nothing visible. */
+  const registerVideo = async (context: AdapterOperationContext) => {
     const registered = object(await request("/media", context, { media_type: "video" }));
     const mediaId = registered["media_id"];
     const uploadUrl = registered["upload_url"];
@@ -982,6 +988,19 @@ export function pinterest(
     if (!numericId(mediaId) || !isString(uploadUrl) || !isJsonObject(parameters))
       throw mediaError("Pinterest returned an unusable media registration. No Pin was created.");
 
+    return { mediaId, uploadUrl, parameters };
+  };
+
+  /**
+   * The documented multipart POST of the file to `upload_url`. `unconfirmed` means the file was
+   * sent and the storage gave no answer or a 5xx, so only the media status can tell whether it
+   * landed. A returned SocialError means the file was not accepted.
+   */
+  const sendVideo = async (
+    { mediaId, uploadUrl, parameters }: Awaited<ReturnType<typeof registerVideo>>,
+    video: NonNullable<PinPlan["video"]>,
+    context: AdapterOperationContext,
+  ): Promise<"accepted" | "unconfirmed" | SocialError> => {
     // Stream the multipart body around the original Blob, so the file is neither copied nor
     // buffered. Its length is known, so the upload sends an exact Content-Length.
     const boundary = "pinterest" + globalThis.crypto.randomUUID().replaceAll("-", "");
@@ -989,7 +1008,7 @@ export function pinterest(
 
     for (const [name, value] of Object.entries(parameters)) {
       if (!isString(value) || /["\r\n]/.test(name) || /[\r\n]/.test(value))
-        throw mediaError(
+        return mediaError(
           "Pinterest returned an unusable upload parameter. No Pin was created.",
           mediaId,
         );
@@ -1062,13 +1081,18 @@ export function pinterest(
         ...definedFields({ fetch: options.fetch, signal: context.signal }),
       });
     } catch (error) {
-      if (!(error instanceof HttpError)) throw error;
+      // The operation budget ran out or was cancelled before the upload started.
+      if (error instanceof SocialError) return error;
 
-      // Sent without an answer: the storage may hold the file, which the media status shows.
-      if (error.dispatched && error.status === undefined) return { mediaId, confirmed: false };
+      // Anything else cannot prove the file stayed unsent.
+      if (!(error instanceof HttpError)) return "unconfirmed";
+
+      // Sent without an answer, or with a storage-side 5xx: the file may have landed.
+      if (error.dispatched && (error.status === undefined || error.status >= 500))
+        return "unconfirmed";
 
       if (error.kind === "cancelled")
-        throw new SocialError({
+        return new SocialError({
           code: "cancelled",
           operation: "media.upload",
           message: "The video upload was cancelled before it was sent. No Pin was created.",
@@ -1076,7 +1100,7 @@ export function pinterest(
         });
 
       if (error.status === undefined)
-        throw new SocialError({
+        return new SocialError({
           code: error.kind === "timeout" ? "timeout" : "upstream_failure",
           operation: "media.upload",
           message: "The video upload could not be sent. No Pin was created.",
@@ -1084,7 +1108,7 @@ export function pinterest(
           retryDisposition: { kind: "never" },
         });
 
-      throw new SocialError({
+      return new SocialError({
         code: error.status === 429 ? "rate_limited" : "media_error",
         operation: "media.upload",
         message: "Pinterest's storage did not accept the video upload. No Pin was created.",
@@ -1094,7 +1118,7 @@ export function pinterest(
       });
     }
 
-    return { mediaId, confirmed: true };
+    return "accepted";
   };
 
   const readAccount = async (context: AdapterOperationContext): Promise<AccountRecord> => {
@@ -1308,10 +1332,13 @@ export function pinterest(
           return { ...published(target.account, pinId), targetIndex: target.targetIndex };
         }
 
-        const { mediaId, confirmed } = await uploadVideo(prepared.video, context);
+        const registration = await registerVideo(context);
+        const { mediaId } = registration;
         const base = { targetIndex: target.targetIndex, account: target.account, mediaId };
         let workflow: PinterestVideoWorkflow;
 
+        // The workflow is saved before the file is sent, so every outcome after the upload
+        // starts keeps a delivery reference.
         try {
           workflow = await workflows.create({
             backend: target.account.backend,
@@ -1327,14 +1354,29 @@ export function pinterest(
             state: "failed",
             code: "upstream_failure",
             message:
-              "The video was uploaded, but the workflow store did not save it. No Pin was created.",
+              "The workflow store did not save the video workflow, so the video was not uploaded. No Pin was created.",
             retryDisposition: { kind: "never" },
           };
         }
 
         const delivery = deliveryRef(target.account, workflow.id);
+        const sent = await sendVideo(registration, prepared.video, context);
 
-        if (!confirmed)
+        if (sent instanceof SocialError) {
+          await workflows.update(workflow.id, { stage: "failed" }).catch(() => undefined);
+
+          return {
+            ...base,
+            delivery,
+            observedAt: now(),
+            state: "failed",
+            code: sent.code,
+            message: sent.message,
+            retryDisposition: { kind: "never" },
+          };
+        }
+
+        if (sent === "unconfirmed")
           return {
             ...base,
             delivery,
@@ -1342,7 +1384,7 @@ export function pinterest(
             state: "unknown",
             reason: "ambiguous-submission",
             diagnostic:
-              "The video upload was sent without an answer. posts.getDelivery reads its media status; no Pin was requested.",
+              "The video upload was sent without a confirmed answer. posts.getDelivery reads its media status; no Pin was requested.",
           };
 
         try {

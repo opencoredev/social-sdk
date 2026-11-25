@@ -1352,3 +1352,144 @@ test("the board list keeps only boards marked public or protected", async () => 
     ["549755885175", "12"],
   );
 });
+
+test("a video upload cancelled before it is sent fails with its delivery and media ID", async () => {
+  const controller = new AbortController();
+
+  // The caller cancels while the workflow is being saved, after registration and before S3.
+  class CancellingStore extends MemoryPinterestWorkflowStore {
+    override async create(input: Omit<PinterestVideoWorkflow, "id">) {
+      controller.abort();
+
+      return super.create(input);
+    }
+  }
+
+  const routed = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+  });
+
+  const { adapter } = client(routed.fetch, { workflowStore: new CancellingStore() });
+
+  const outcome = await adapter.posts!.publishTarget(
+    {
+      targetIndex: 0,
+      targetKey: "0",
+      account,
+      content: { media: [video()] },
+      options: { boardId: "1" },
+    },
+    { ...context, signal: controller.signal },
+  );
+
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.code, "cancelled");
+  assert.equal(outcome.mediaId, "12345");
+  assert.ok(outcome.delivery);
+  assert.equal(routed.calls.length, 1);
+});
+
+test("a 5xx from S3 after the file was sent is unknown and keeps its delivery", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response("busy", { status: 503 })],
+  });
+
+  const result = await client(fetch).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "unknown");
+  assert.equal(outcome.mediaId, "12345");
+  assert.ok(outcome.delivery);
+  assert.equal(calls.length, 2);
+});
+
+test("a workflow store that cannot save the video stops before the file is sent", async () => {
+  class BrokenStore extends MemoryPinterestWorkflowStore {
+    override async create(): Promise<PinterestVideoWorkflow> {
+      throw new Error("store unavailable");
+    }
+  }
+
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+  });
+
+  const result = await client(fetch, { workflowStore: new BrokenStore() }).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.deepEqual(outcome.retryDisposition, { kind: "never" });
+  assert.equal(outcome.mediaId, "12345");
+  assert.equal(calls.length, 1);
+});
+
+test("a rejected Pin request whose workflow update fails says so and is never resent", async () => {
+  class StickyStore extends MemoryPinterestWorkflowStore {
+    override async update(id: string, update: Partial<Omit<PinterestVideoWorkflow, "id">>) {
+      if (update.stage === "processing") throw new Error("store unavailable");
+
+      return super.update(id, update);
+    }
+  }
+
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("succeeded"))],
+    ["POST " + api + "/v5/pins"]: [json(fixtures.error(8, "Rate limited"), 429)],
+  });
+
+  const { social } = client(fetch, { workflowStore: new StickyStore() });
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.code, "rate_limited");
+  assert.equal(outcome.backendState, "WORKFLOW_SAVE_FAILED");
+  assert.ok(outcome.delivery);
+
+  const later = await social.posts.getDelivery(outcome.delivery);
+  assert.equal(later.state, "unknown");
+  assert.equal(calls.filter((call) => call.url.pathname === "/v5/pins").length, 1);
+});
+
+test("a Pin creation answered with a status other than 200 or 201 is unknown", async () => {
+  const { fetch } = route({ ["POST " + api + "/v5/pins"]: [json(fixtures.pin, 202)] });
+
+  const result = await client(fetch).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [imageUrl] },
+  });
+
+  assert.equal(only(result.outcomes).state, "unknown");
+});
+
+test("a malformed media status object is unreadable and stays continuable", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json({ media_id: "12345", status: 17 })],
+  });
+
+  const result = await client(fetch).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.code, "upstream_failure");
+  assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
+  assert.equal(calls.length, 3);
+});
