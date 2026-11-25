@@ -6,14 +6,14 @@
 
 **Breaking change.** The `topics` option is replaced by `pending`, a list of `{ topic, mode }` entries.
 
-Migration: record each request you send to the hub, and pass the ones still awaiting verification:
+Migration: store each request you send to the hub as `{ topic, mode }`, and pass the stored requests that are still awaiting verification:
 
 ```ts
 // Before
 answerYouTubeWebhookChallenge({ query, topics: [topic] });
 
-// After
-answerYouTubeWebhookChallenge({ query, pending: [{ topic, mode: "subscribe" }] });
+// After: `pending` is your stored list of unverified hub requests
+answerYouTubeWebhookChallenge({ query, pending });
 ```
 
 List an unsubscribe only while you have one in flight, and drop each entry once the hub has verified it.
