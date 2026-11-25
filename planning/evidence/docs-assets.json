@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-11-25T04:48:41.173Z",
+  "recordedAt": "2026-11-25T04:52:10.416Z",
   "runtime": "Bun 1.4.4",
   "methodology": "Static production build bytes and per-file gzip. Whole-build totals include optional search, diagram and syntax chunks. Route lists are directly linked entries, not browser transfer measurements or a complete lazy-load graph.",
   "totals": {
@@ -17,14 +17,14 @@
   "routes": [
     {
       "route": "",
-      "htmlBytes": 99406,
-      "htmlGzipBytes": 22041,
+      "htmlBytes": 99856,
+      "htmlGzipBytes": 22153,
       "directlyLinkedAssets": []
     },
     {
       "route": "docs/",
-      "htmlBytes": 109205,
-      "htmlGzipBytes": 23382,
+      "htmlBytes": 109655,
+      "htmlGzipBytes": 23487,
       "directlyLinkedAssets": [
         {
           "path": "_astro/WebMcp.astro_astro_type_script_index_0_lang.BmY4MV5J.js",
@@ -72,8 +72,8 @@
     },
     {
       "route": "docs/platforms/tiktok/",
-      "htmlBytes": 213977,
-      "htmlGzipBytes": 41391,
+      "htmlBytes": 214427,
+      "htmlGzipBytes": 41504,
       "directlyLinkedAssets": [
         {
           "path": "_astro/WebMcp.astro_astro_type_script_index_0_lang.BmY4MV5J.js",

@@ -221,7 +221,7 @@ export const posthogScript = `(() => {
       },
       // Until the SDK has loaded, window.posthog is the loader's stub, and an
       // event captured there is lost if the visitor leaves first. So events keep
-      // waiting in pending and queued, which pagehide carries to the next page.
+      // waiting in pending and queued, and pagehide carries queued ones to the next page.
       loaded: (instance) => {
         client = instance;
         started = true;
