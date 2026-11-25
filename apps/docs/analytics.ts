@@ -141,7 +141,7 @@ export const posthogScript = `(() => {
     const event = classify(path);
     if (!event) return;
     // A queued visit keeps its own URL instead of the page PostHog started on.
-    client.capture(event[0], url ? { ...event[1], $current_url: url } : event[1]);
+    client.capture(event[0], url ? { ...event[1], $current_url: url, $pathname: path } : event[1]);
   };
   // Routes visited before PostHog starts wait here, so a quick hop through the
   // docs still records each page.
@@ -194,7 +194,10 @@ export const posthogScript = `(() => {
     else (window.databuddyPending ??= []).push([event, properties]);
     if (started) client.capture(event, properties, { send_instantly: true });
     // A queued event keeps the URL of the page that reported it, as queued visits do.
-    else queued.push([event, { ...properties, $current_url: window.location.origin + window.location.pathname }]);
+    else {
+      const { origin, pathname } = window.location;
+      queued.push([event, { ...properties, $current_url: origin + pathname, $pathname: pathname }]);
+    }
   };
   const visit = () => {
     const path = window.location.pathname;
@@ -216,6 +219,11 @@ export const posthogScript = `(() => {
         if (event?.properties) {
           for (const key of ["$current_url", "$referrer", "$session_entry_url", "$session_entry_referrer"]) {
             if (key in event.properties) event.properties[key] = stripQuery(event.properties[key]);
+          }
+          for (const exception of event.properties.$exception_list ?? []) {
+            for (const frame of exception?.stacktrace?.frames ?? []) {
+              if (frame?.filename) frame.filename = stripQuery(frame.filename);
+            }
           }
         }
         return event;
