@@ -153,18 +153,22 @@ export const databuddyScript = `(() => {
     code
       .replace(/\\\\\\n/g, " ")
       .split("\\n")
-      .some((line) => {
-        const words = line.split("#")[0].trim().split(/\\s+/);
-        const at = words.findIndex(
-          (word, index) =>
-            /^(?:npm|pnpm|yarn|bun|nub|aube)$/.test(word) && /^(?:i|install|add)$/.test(words[index + 1] ?? ""),
-        );
-        if (at === -1) return false;
-        const end = words.findIndex((word, index) => index > at && /^(?:&&|\\|\\||;|\\|)$/.test(word));
-        return words
-          .slice(at + 2, end === -1 ? undefined : end)
-          .some((word) => /^@opencoredev\\/social-sdk(?:@[^\\s/]+)?$/.test(word));
-      });
+      .some((line) =>
+        line
+          .split("#")[0]
+          .split(/&&|\\|\\||[;|]/)
+          .some((command) => {
+            const words = command
+              .trim()
+              .split(/\\s+/)
+              .map((word) => word.replace(/^["']|["']$/g, ""));
+            const at = words.findIndex(
+              (word, index) =>
+                /^(?:npm|pnpm|yarn|bun|nub|aube)$/.test(word) && /^(?:i|install|add)$/.test(words[index + 1] ?? ""),
+            );
+            return at !== -1 && words.slice(at + 2).some((word) => /^@opencoredev\\/social-sdk(?:@[^\\s/]+)?$/.test(word));
+          }),
+      );
   // Blume adds a copy button inside each code block, or to the tab bar of a
   // tabbed block, where it copies the visible tab's code.
   const copiedBlock = (button) => {
