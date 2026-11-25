@@ -141,7 +141,7 @@ export const databuddyScript = `(() => {
     return null;
   };
   const installsSdk =
-    /\\b(?:npm|pnpm|yarn|bun)\\s+(?:i|install|add)\\b[\\s\\S]*?@opencoredev\\/social-sdk(?![\\w.-])/;
+    /\\b(?:npm|pnpm|yarn|bun|nub|aube)\\s+(?:i|install|add)\\b[\\s\\S]*?@opencoredev\\/social-sdk(?![\\w.-])/;
   // Blume adds a copy button inside each code block, or to the tab bar of a
   // tabbed block, where it copies the visible tab's code.
   const copiedBlock = (button) => {
@@ -152,14 +152,29 @@ export const databuddyScript = `(() => {
     const visible = panels.find((panel) => !panel.classList.contains("hidden")) ?? panels[0];
     return visible?.matches("pre") ? visible : (visible?.querySelector("pre") ?? null);
   };
+  const where = () => {
+    const page = location.pathname;
+    const surface = page === "/" ? "landing" : page === "/docs" || page.startsWith("/docs/") ? "docs" : "site";
+    return { surface, page };
+  };
+  const outbound = (target) => {
+    const to = destination(target.closest("a[href]")?.getAttribute("href") ?? "");
+    if (to) send("outbound_click", { destination: to, ...where() });
+    return to !== null;
+  };
+  // A middle click opens a link in a new tab and fires auxclick, not click.
+  document.addEventListener(
+    "auxclick",
+    (event) => {
+      if (event.button === 1 && event.target instanceof Element) outbound(event.target);
+    },
+    { capture: true },
+  );
   document.addEventListener(
     "click",
     (event) => {
-      if (!(event.target instanceof Element)) return;
-      const page = location.pathname;
-      const surface = page === "/" ? "landing" : page === "/docs" || page.startsWith("/docs/") ? "docs" : "site";
-      const to = destination(event.target.closest("a[href]")?.getAttribute("href") ?? "");
-      if (to) return send("outbound_click", { destination: to, surface, page });
+      if (!(event.target instanceof Element) || outbound(event.target)) return;
+      const { surface, page } = where();
       if (event.target.closest('[data-cta="install_copy"]'))
         return send("install_command_copy", { surface, page });
       const button = event.target.closest("[data-blume-copy]");
