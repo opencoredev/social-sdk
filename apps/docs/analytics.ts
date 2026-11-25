@@ -89,6 +89,7 @@ export const databuddyScript = `(() => {
   // the latest tag per script.
   const settled = new Set();
   const latest = new Map();
+  let trackerFailed = false;
   const load = () => {
     for (const [src, attributes] of tags) {
       if (settled.has(src) || latest.get(src)?.isConnected) continue;
@@ -106,7 +107,14 @@ export const databuddyScript = `(() => {
           }
         }
       };
-      tag.onerror = () => settled.add(src);
+      tag.onerror = () => {
+        settled.add(src);
+        if (src !== ${JSON.stringify(DATABUDDY_TRACKER_SRC)}) return;
+        // The tracker won't load on this page (a blocker, a 404), so queued
+        // events have nowhere to go.
+        trackerFailed = true;
+        window.databuddyPending = [];
+      };
       latest.set(src, tag);
       document.head.append(tag);
     }
@@ -115,22 +123,25 @@ export const databuddyScript = `(() => {
   document.addEventListener("astro:page-load", load);
 
   const send = (event, properties) => {
-    if (window.databuddy) window.databuddy.track(event, properties);
-    else (window.databuddyPending ??= []).push([event, properties]);
+    if (window.databuddy) return window.databuddy.track(event, properties);
+    if (trackerFailed) return;
+    const pending = (window.databuddyPending ??= []);
+    if (pending.length < 50) pending.push([event, properties]);
   };
   const destination = (href) => {
     try {
       const url = new URL(href, location.href);
       if (url.hostname === "github.com" && /^\\/opencoredev\\/social-sdk(\\/|$)/.test(url.pathname))
         return "github";
-      if (url.hostname === "www.npmjs.com" && url.pathname.startsWith("/package/@opencoredev/social-sdk"))
+      if (url.hostname === "www.npmjs.com" && /^\\/package\\/@opencoredev\\/social-sdk(\\/|$)/.test(url.pathname))
         return "npm";
     } catch {
       // An href that isn't a URL isn't a conversion link.
     }
     return null;
   };
-  const installsSdk = /\\b(?:npm|pnpm|yarn|bun)\\s+(?:i|install|add)\\b.*@opencoredev\\/social-sdk/;
+  const installsSdk =
+    /\\b(?:npm|pnpm|yarn|bun)\\s+(?:i|install|add)\\b[\\s\\S]*?@opencoredev\\/social-sdk(?![\\w.-])/;
   // Blume adds a copy button inside each code block, or to the tab bar of a
   // tabbed block, where it copies the visible tab's code.
   const copiedBlock = (button) => {
