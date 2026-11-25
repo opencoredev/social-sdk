@@ -894,16 +894,18 @@ export function createSocial(
   ): Promise<void> {
     if (config.authorization === undefined) return;
 
-    const decision = (
+    const decisions = (
       await config.authorization.authorizeTargets({
         operation,
         accounts: [account],
         context: makeContext("*", correlationId, options),
       })
-    ).find((candidate) => targetKey(candidate.account) === targetKey(account));
+    ).filter((candidate) => targetKey(candidate.account) === targetKey(account));
 
-    if (decision === undefined && fallback !== undefined)
+    if (decisions.length === 0 && fallback !== undefined)
       return authorizeRef(fallback, account, options, correlationId);
+
+    const decision = decisions.find((candidate) => candidate.allowed !== true) ?? decisions[0];
 
     if (decision?.allowed !== true) {
       throw new SocialError({
