@@ -1141,3 +1141,214 @@ test("an empty 200 delete answer is not a confirmed deletion", async () => {
   assert.ok(error instanceof SocialError);
   assert.equal(error.code, "ambiguous_outcome");
 });
+
+test("an unreadable media status after the upload keeps the delivery and stays continuable", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [
+      new Response("null", { status: 200, headers: { "content-type": "application/json" } }),
+      json(fixtures.media("succeeded")),
+    ],
+    ["POST " + api + "/v5/pins"]: [json(fixtures.pin, 201)],
+  });
+
+  const { social, adapter } = client(fetch);
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.code, "upstream_failure");
+  assert.equal(outcome.mediaId, "12345");
+  assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
+  assert.ok(outcome.delivery);
+  assert.equal(calls.filter((call) => call.url.pathname === "/v5/pins").length, 0);
+
+  const resumed = await adapter.native!.continueVideoPin({ delivery: outcome.delivery, context });
+  assert.equal(resumed.state, "published");
+});
+
+test("a workflow store error after the upload keeps the delivery and sends no Pin request", async () => {
+  class FlakyStore extends MemoryPinterestWorkflowStore {
+    failed = false;
+
+    override async claim(id: string) {
+      if (!this.failed) {
+        this.failed = true;
+        throw new Error("store unavailable");
+      }
+
+      return super.claim(id);
+    }
+  }
+
+  const workflowStore = new FlakyStore();
+
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("succeeded"))],
+    ["POST " + api + "/v5/pins"]: [json(fixtures.pin, 201)],
+  });
+
+  const { social, adapter } = client(fetch, { workflowStore });
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.mediaId, "12345");
+  assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
+  assert.ok(outcome.delivery);
+  assert.equal(calls.length, 2);
+
+  const resumed = await adapter.native!.continueVideoPin({ delivery: outcome.delivery, context });
+  assert.equal(resumed.state, "published");
+});
+
+test("an S3 upload sent without an answer is unknown, keeps its delivery and is checked by status", async () => {
+  const routed = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("succeeded"))],
+  });
+
+  let uploaded = 0;
+
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    if (new URL(String(input)).host !== s3) return routed.fetch(input, init);
+    uploaded = (await new Response(init?.body).arrayBuffer()).byteLength;
+    throw new TypeError("socket hang up");
+  };
+
+  const { social } = client(fetch);
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "unknown");
+  assert.equal(outcome.reason, "ambiguous-submission");
+  assert.equal(outcome.mediaId, "12345");
+  assert.ok(outcome.delivery);
+  assert.ok(uploaded > 0);
+  assert.equal(routed.calls.length, 1);
+
+  const status = await social.posts.getDelivery(outcome.delivery);
+  assert.equal(status.state, "processing");
+  assert.equal(status.backendState, "MEDIA_READY");
+  assert.equal(routed.calls.filter((call) => call.url.pathname === "/v5/pins").length, 0);
+});
+
+test("a reconnect or rate limit on the video Pin request keeps the workflow continuable", async () => {
+  const { fetch, calls } = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [
+      json(fixtures.media("succeeded")),
+      json(fixtures.media("succeeded")),
+      json(fixtures.media("succeeded")),
+    ],
+    ["POST " + api + "/v5/pins"]: [
+      json(fixtures.error(2, "Authentication failed"), 401),
+      json(fixtures.error(8, "Rate limited"), 429, { "retry-after": "5" }),
+      json(fixtures.pin, 201),
+    ],
+  });
+
+  const { social, adapter } = client(fetch);
+
+  const result = await social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const outcome = only(result.outcomes);
+  assert.ok(outcome.state === "failed");
+  assert.equal(outcome.code, "reconnect_required");
+  assert.deepEqual(outcome.retryDisposition, { kind: "reconcile-first" });
+  assert.ok(outcome.delivery);
+
+  const limited = await adapter.native!.continueVideoPin({ delivery: outcome.delivery, context });
+  assert.ok(limited.state === "failed");
+  assert.equal(limited.code, "rate_limited");
+  assert.deepEqual(limited.retryDisposition, { kind: "after-delay", delayMs: 5000 });
+
+  const resumed = await adapter.native!.continueVideoPin({ delivery: outcome.delivery, context });
+  assert.equal(resumed.state, "published");
+  assert.equal(calls.filter((call) => call.url.pathname === "/v5/pins").length, 3);
+});
+
+test("a sandbox adapter neither reads nor continues video workflows", async () => {
+  const workflowStore = new MemoryPinterestWorkflowStore();
+
+  const production = route({
+    ["POST " + api + "/v5/media"]: [json(fixtures.mediaRegistration, 201)],
+    ["POST " + s3 + "/"]: [new Response(null, { status: 204 })],
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("processing"))],
+  });
+
+  const result = await client(production.fetch, { workflowStore }).social.posts.publish({
+    targets: [{ account, options: { boardId: "1" } }],
+    content: { media: [video()] },
+  });
+
+  const delivery = only(result.outcomes).delivery;
+  assert.ok(delivery);
+
+  const sandboxed = route({});
+  const { adapter, social } = client(sandboxed.fetch, { workflowStore, sandbox: true });
+
+  const continued = await adapter
+    .native!.continueVideoPin({ delivery, context })
+    .catch((cause: unknown) => cause);
+
+  assert.ok(continued instanceof SocialError);
+  assert.equal(continued.code, "unsupported_capability");
+
+  const status = await social.posts.getDelivery(delivery).catch((cause: unknown) => cause);
+
+  assert.ok(status instanceof SocialError);
+  assert.equal(status.code, "unsupported_capability");
+
+  assert.equal(sandboxed.calls.length, 0);
+
+  const declared = adapter.capabilities.capabilities.filter(
+    (entry) => entry.operation === "posts.status" || entry.operation === "posts.publish.continue",
+  );
+
+  assert.deepEqual(
+    declared.map((entry) => entry.availability),
+    ["unsupported-by-platform", "unsupported-by-platform"],
+  );
+});
+
+test("the board list keeps only boards marked public or protected", async () => {
+  const { fetch } = route({
+    ["GET " + api + "/v5/boards"]: [
+      json({
+        items: [
+          ...fixtures.boardsPage.items,
+          { id: "10", name: "Unlabeled" },
+          { id: "11", name: "Future", privacy: "UNLISTED" },
+          { id: "12", name: "Team", privacy: "PROTECTED" },
+        ],
+      }),
+    ],
+  });
+
+  const page = await client(fetch).adapter.native!.listBoards({ account, context });
+
+  assert.deepEqual(
+    page.items.map((board) => board["id"]),
+    ["549755885175", "12"],
+  );
+});

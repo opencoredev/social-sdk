@@ -182,15 +182,17 @@ Pass the video as a Blob of an MP4, M4V or MOV file, 4 seconds to 5 minutes long
 
 Continuing is split into a read and a write. `posts.getDelivery` is read-only: it returns the stored result, or reads the media status once and reports `processing` with `backendState: "MEDIA_READY"` when the upload is ready. It never creates a Pin. The native `continueVideoPin` sends that write: one status read, then at most one `POST /v5/pins`. Native calls bypass normalized authorization, so call it only from code that may publish for the account.
 
-A failed status read, a rate-limited Pin request, or a Pin request cancelled or timed out before it was sent returns `failed` with the same delivery reference, the `mediaId` and `reconcile-first`, and the workflow stays continuable. Continue it with `continueVideoPin` rather than publishing the target again, which would upload the video a second time.
+A failed or unreadable status read, a workflow store error, or a Pin request that Pinterest rejected with 401, 403 or 429, or that was cancelled or timed out before it was sent, returns `failed` with the same delivery reference, the `mediaId` and `reconcile-first`. No Pin exists and the workflow stays continuable: continue it with `continueVideoPin` rather than publishing the target again, which would upload the video a second time. A failed `continueVideoPin` result carries Pinterest's own advice instead, such as `after-reconnect` for a 401 or `after-delay` with the `Retry-After` delay for a 429, because retrying it means continuing again.
 
-The workflow store keeps the pending Pin request. The default `MemoryPinterestWorkflowStore` lives in the process, which is fine for a script. On a server, implement `PinterestWorkflowStore` over shared storage so a processing video can be continued after a restart. Its `claim` must be atomic: a continuation rereads the row after it wins the claim, so it never acts on a stale copy, and one that loses the claim returns `processing` with `backendState: "CLAIMED"` and sends nothing.
+If the file was sent to S3 but no answer came back, the outcome is `unknown` with `ambiguous-submission`, the `mediaId` and a delivery reference, and no Pin is requested. Call `posts.getDelivery`: `MEDIA_READY` means Pinterest has the file and `continueVideoPin` can create the Pin, while a status that stays `registered` means the upload never arrived. Video workflows exist only in production, so a sandbox adapter refuses `getDelivery` and `continueVideoPin` before any request.
+
+The workflow store keeps the pending Pin request. The default `MemoryPinterestWorkflowStore` lives in the process, which is fine for a script. On a server, implement `PinterestWorkflowStore` over shared storage so a processing video can be continued after a restart. Its `claim` must be atomic and held until `release`, with no expiry: a continuation rereads the row after it wins the claim, so it never acts on a stale copy, and one that loses the claim returns `processing` with `backendState: "CLAIMED"` and sends nothing. A worker that stops mid-continuation may already have sent the Pin request, so clear its claim only after you have checked the board.
 
 ### Uncertain writes
 
 The adapter saves the workflow as `creating` before it sends the Pin request. If that request gets no readable answer, such as a 5xx or a dropped connection, the outcome is `unknown` with `ambiguous-submission`, and later `getDelivery` and `continueVideoPin` calls keep returning `unknown` without sending the request again. Check the board before you publish again. The same applies to image Pins: a 2xx answer without a numeric Pin ID is `unknown`, not `failed`.
 
-A rejection Pinterest states is a `failed` outcome: 401 is `reconnect_required`, 403 is `missing_permission`, and 429 is `rate_limited` with the `Retry-After` delay when Pinterest sends one. On a video workflow the retry disposition is `reconcile-first`, so continue it rather than uploading again. Writes are never retried for you.
+A rejection Pinterest states is a `failed` outcome: 401 is `reconnect_required`, 403 is `missing_permission`, and 429 is `rate_limited` with the `Retry-After` delay when Pinterest sends one. A video Pin request rejected this way keeps its workflow, as described above. Writes are never retried for you.
 
 ### Delete a Pin
 
@@ -236,7 +238,7 @@ if (boards.nextCursor) {
 }
 ```
 
-`limit` is Pinterest's `page_size` (1 to 250, default 25) and `cursor` its `bookmark`. `privacy` filters to `PUBLIC` or `PROTECTED` boards. Without it, Pinterest returns every board the token can read, so the adapter drops any `SECRET` board from the page; a filtered page can hold fewer items than `limit`. Each board keeps `id`, `name`, `description`, `privacy`, `pin_count`, `follower_count`, `collaborator_count`, `created_at`, `board_pins_modified_at` and `is_ads_only`.
+`limit` is Pinterest's `page_size` (1 to 250, default 25) and `cursor` its `bookmark`. `privacy` filters to `PUBLIC` or `PROTECTED` boards. Without it, Pinterest returns every board the token can read, so the adapter keeps only boards marked `PUBLIC` or `PROTECTED` and drops `SECRET` boards and any board with a missing or unknown privacy value; a filtered page can hold fewer items than `limit`. Each board keeps `id`, `name`, `description`, `privacy`, `pin_count`, `follower_count`, `collaborator_count`, `created_at`, `board_pins_modified_at` and `is_ads_only`.
 
 ## Limits and requirements
 

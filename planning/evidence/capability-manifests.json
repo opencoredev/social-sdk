@@ -16421,10 +16421,7 @@
           "operation": "posts.status",
           "availability": "available",
           "requiredScopes": [
-            "boards:read",
-            "boards:write",
-            "pins:read",
-            "pins:write"
+            "pins:read"
           ],
           "notes": "Read-only. Reports a stored video Pin result, or one media status read; MEDIA_READY means native.continueVideoPin can create the Pin."
         },

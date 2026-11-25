@@ -49,6 +49,15 @@ const productionOrigin = "https://api.pinterest.com/v5";
 
 const sandboxOrigin = "https://api-sandbox.pinterest.com/v5";
 
+/** Pin request errors after which no Pin exists and the video workflow can be continued. */
+const continuableCodes: ReadonlySet<string> = new Set([
+  "rate_limited",
+  "timeout",
+  "cancelled",
+  "reconnect_required",
+  "missing_permission",
+]);
+
 /** Scopes Pinterest lists for POST and DELETE /v5/pins and for the media upload endpoints. */
 const pinWriteScopes = ["boards:read", "boards:write", "pins:read", "pins:write"] as const;
 
@@ -121,7 +130,10 @@ export interface PinterestOptions {
    * `mediaStaging` store, so local images are staged and sent as `image_url`.
    */
   readonly imageBase64?: boolean;
-  /** Keeps video Pins that are still processing so `posts.getDelivery` can create them later. */
+  /**
+   * Keeps video Pins that are still processing, so `posts.getDelivery` can report them and
+   * `native.continueVideoPin` can create them later.
+   */
   readonly workflowStore?: PinterestWorkflowStore;
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
@@ -147,10 +159,14 @@ export interface PinterestWorkflowStore {
   create(input: Omit<PinterestVideoWorkflow, "id">): Promise<PinterestVideoWorkflow>;
   get(id: string): Promise<PinterestVideoWorkflow | undefined>;
   update(id: string, update: PinterestWorkflowUpdate): Promise<PinterestVideoWorkflow>;
-  /** Atomically claim a workflow for continuation. */
+  /**
+   * Atomically claim a workflow for continuation. A claim is held until `release` and must not
+   * expire on its own: a worker that stops mid-continuation may have sent the Pin request, so a
+   * stale claim is cleared only after the board has been checked.
+   */
   claim(id: string): Promise<boolean>;
   /** Release the claim once the continuation settles. */
-  release?(id: string): Promise<void>;
+  release(id: string): Promise<void>;
 }
 
 /** Process-local workflow store. Use a durable store when processing can outlive the process. */
@@ -632,6 +648,7 @@ export function pinterest(
     account: ConnectedAccountRef,
     error: SocialError,
     continuable: boolean,
+    fromPublish: boolean,
   ): DeliveryOutcome => ({
     state: "failed",
     targetIndex: 0,
@@ -642,8 +659,10 @@ export function pinterest(
     code: error.code,
     message: error.message,
     // A continuable workflow is resumed with native.continueVideoPin, never by publishing the
-    // target again, which would upload the video a second time.
-    retryDisposition: continuable ? { kind: "reconcile-first" } : error.retryDisposition,
+    // target again, which would upload the video a second time. From a continuation, retrying
+    // means continuing again, so the error's own delay or reconnect advice applies.
+    retryDisposition:
+      continuable && fromPublish ? { kind: "reconcile-first" } : error.retryDisposition,
   });
 
   /** The outcome a stored workflow already settles, or undefined while it is still processing. */
@@ -681,18 +700,23 @@ export function pinterest(
     workflow: PinterestVideoWorkflow,
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
+    fromPublish: boolean,
   ): Promise<DeliveryOutcome> => {
     const delivery = deliveryRef(account, workflow.id);
     const base = { targetIndex: 0, account, delivery, mediaId: workflow.mediaId };
-    let media: JsonObject;
+    let media: JsonValue;
 
     try {
-      media = object(await request(`/media/${encodeURIComponent(workflow.mediaId)}`, context));
+      media = await request(`/media/${encodeURIComponent(workflow.mediaId)}`, context);
     } catch (error) {
       // Nothing was written: the workflow stays processing and can be continued later.
-      if (error instanceof SocialError) return failedVideo(workflow, account, error, true);
+      if (error instanceof SocialError)
+        return failedVideo(workflow, account, error, true, fromPublish);
       throw error;
     }
+
+    if (!isJsonObject(media))
+      return failedVideo(workflow, account, unreadableMedia(), true, fromPublish);
 
     const status = media["status"];
 
@@ -762,14 +786,13 @@ export function pinterest(
           diagnostic: "The Pin request was sent without a confirmed answer and was not repeated.",
         };
 
-      // No Pin was created. A rate limit or an unsent request can be continued later; any other
-      // stated rejection ends the workflow.
-      const continuable =
-        error.code === "rate_limited" || error.code === "timeout" || error.code === "cancelled";
+      // No Pin was created. A rate limit, an expired or under-scoped token, or an unsent request
+      // can be continued later; any other stated rejection ends the workflow.
+      const continuable = continuableCodes.has(error.code);
 
       await workflows.update(workflow.id, { stage: continuable ? "processing" : "failed" });
 
-      return failedVideo(workflow, account, error, continuable);
+      return failedVideo(workflow, account, error, continuable, fromPublish);
     }
 
     const outcome = published(account, pinId, delivery);
@@ -790,8 +813,8 @@ export function pinterest(
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
   ): Promise<DeliveryOutcome> => {
-    const media = object(await request(`/media/${encodeURIComponent(workflow.mediaId)}`, context));
-
+    const answer = await request(`/media/${encodeURIComponent(workflow.mediaId)}`, context);
+    const media = isJsonObject(answer) ? answer : {};
     const status = media["status"];
 
     const base = {
@@ -830,6 +853,16 @@ export function pinterest(
       state: "processing",
       backendState: status === "succeeded" ? "MEDIA_READY" : status,
     };
+  };
+
+  /** Video workflows exist only in production, so a sandbox adapter never reads or continues one. */
+  const rejectSandboxVideo = (operation: string) => {
+    if (sandbox)
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation,
+        message: "Pinterest's sandbox cannot create video Pins, so it has no video workflows.",
+      });
   };
 
   /** Load a workflow for an account reference, rejecting another account's workflow. */
@@ -877,6 +910,7 @@ export function pinterest(
     id: string,
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
+    fromPublish: boolean,
   ): Promise<DeliveryOutcome> => {
     if (!(await workflows.claim(id)))
       return {
@@ -900,20 +934,28 @@ export function pinterest(
           message: "The Pinterest video workflow disappeared from the store.",
         });
 
-      outcome = settled(current, account) ?? (await continueVideo(current, account, context));
+      outcome =
+        settled(current, account) ?? (await continueVideo(current, account, context, fromPublish));
     } catch (error) {
-      await workflows.release?.(id).catch(() => undefined);
+      await workflows.release(id).catch(() => undefined);
       throw error;
     }
 
     try {
-      await workflows.release?.(id);
+      await workflows.release(id);
     } catch {
       return { ...outcome, backendState: "CLAIM_RELEASE_FAILED" };
     }
 
     return outcome;
   };
+
+  const unreadableMedia = () =>
+    new SocialError({
+      code: "upstream_failure",
+      operation: "pinterest.posts.status",
+      message: "Pinterest returned an unreadable media status. No Pin was requested.",
+    });
 
   const mediaError = (message: string, mediaId?: string) =>
     new SocialError({
@@ -924,11 +966,14 @@ export function pinterest(
       retryDisposition: { kind: "never" },
     });
 
-  /** `POST /v5/media`, then the documented multipart POST of the file to `upload_url`. */
+  /**
+   * `POST /v5/media`, then the documented multipart POST of the file to `upload_url`.
+   * `confirmed` is false when the file was sent and the storage answer never arrived.
+   */
   const uploadVideo = async (
     video: NonNullable<PinPlan["video"]>,
     context: AdapterOperationContext,
-  ): Promise<string> => {
+  ): Promise<{ readonly mediaId: string; readonly confirmed: boolean }> => {
     const registered = object(await request("/media", context, { media_type: "video" }));
     const mediaId = registered["media_id"];
     const uploadUrl = registered["upload_url"];
@@ -1019,12 +1064,24 @@ export function pinterest(
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
 
+      // Sent without an answer: the storage may hold the file, which the media status shows.
+      if (error.dispatched && error.status === undefined) return { mediaId, confirmed: false };
+
       if (error.kind === "cancelled")
         throw new SocialError({
           code: "cancelled",
           operation: "media.upload",
-          message: "The video upload was cancelled. No Pin was created.",
+          message: "The video upload was cancelled before it was sent. No Pin was created.",
           details: { mediaId },
+        });
+
+      if (error.status === undefined)
+        throw new SocialError({
+          code: error.kind === "timeout" ? "timeout" : "upstream_failure",
+          operation: "media.upload",
+          message: "The video upload could not be sent. No Pin was created.",
+          details: { mediaId },
+          retryDisposition: { kind: "never" },
         });
 
       throw new SocialError({
@@ -1037,7 +1094,7 @@ export function pinterest(
       });
     }
 
-    return mediaId;
+    return { mediaId, confirmed: true };
   };
 
   const readAccount = async (context: AdapterOperationContext): Promise<AccountRecord> => {
@@ -1121,14 +1178,21 @@ export function pinterest(
               notes:
                 "Registers the upload, sends the Blob, reads the media status once and creates the Pin when it has succeeded. Otherwise the outcome is processing; native.continueVideoPin creates the Pin once the upload has succeeded. Needs an HTTPS thumbnail for the cover.",
             },
-        {
-          platform: "pinterest",
-          operation: "posts.status",
-          availability: "available" as const,
-          requiredScopes: pinWriteScopes,
-          notes:
-            "Read-only. Reports a stored video Pin result, or one media status read; MEDIA_READY means native.continueVideoPin can create the Pin.",
-        },
+        sandbox
+          ? unavailable(
+              "posts.status",
+              "unsupported-by-platform",
+              "Only video Pins have a delivery status, and Pinterest's sandbox cannot create them.",
+            )
+          : {
+              platform: "pinterest",
+              operation: "posts.status",
+              availability: "available" as const,
+              // GET /v5/media/{media_id} needs pins:read.
+              requiredScopes: ["pins:read"],
+              notes:
+                "Read-only. Reports a stored video Pin result, or one media status read; MEDIA_READY means native.continueVideoPin can create the Pin.",
+            },
         {
           platform: "pinterest",
           operation: "posts.removeFromPlatform",
@@ -1142,14 +1206,20 @@ export function pinterest(
           availability: "available" as const,
           requiredScopes: ["user_accounts:read"],
         },
-        {
-          platform: "pinterest",
-          operation: "posts.publish.continue",
-          availability: "available" as const,
-          requiredScopes: pinWriteScopes,
-          notes:
-            "native.continueVideoPin: the write that creates a processed video Pin. It bypasses normalized authorization, so gate it like posts.publish.",
-        },
+        sandbox
+          ? unavailable(
+              "posts.publish.continue",
+              "unsupported-by-platform",
+              "Pinterest's sandbox cannot create video Pins.",
+            )
+          : {
+              platform: "pinterest",
+              operation: "posts.publish.continue",
+              availability: "available" as const,
+              requiredScopes: pinWriteScopes,
+              notes:
+                "native.continueVideoPin: the write that creates a processed video Pin. It bypasses normalized authorization, so gate it like posts.publish.",
+            },
         {
           platform: "pinterest",
           operation: "boards.read",
@@ -1238,20 +1308,61 @@ export function pinterest(
           return { ...published(target.account, pinId), targetIndex: target.targetIndex };
         }
 
-        const mediaId = await uploadVideo(prepared.video, context);
+        const { mediaId, confirmed } = await uploadVideo(prepared.video, context);
+        const base = { targetIndex: target.targetIndex, account: target.account, mediaId };
+        let workflow: PinterestVideoWorkflow;
 
-        const workflow = await workflows.create({
-          backend: target.account.backend,
-          accountId: target.account.accountId,
-          mediaId,
-          pin: prepared.pin,
-          stage: "processing",
-        });
+        try {
+          workflow = await workflows.create({
+            backend: target.account.backend,
+            accountId: target.account.accountId,
+            mediaId,
+            pin: prepared.pin,
+            stage: "processing",
+          });
+        } catch {
+          return {
+            ...base,
+            observedAt: now(),
+            state: "failed",
+            code: "upstream_failure",
+            message:
+              "The video was uploaded, but the workflow store did not save it. No Pin was created.",
+            retryDisposition: { kind: "never" },
+          };
+        }
 
-        return {
-          ...(await resume(workflow.id, target.account, context)),
-          targetIndex: target.targetIndex,
-        };
+        const delivery = deliveryRef(target.account, workflow.id);
+
+        if (!confirmed)
+          return {
+            ...base,
+            delivery,
+            observedAt: now(),
+            state: "unknown",
+            reason: "ambiguous-submission",
+            diagnostic:
+              "The video upload was sent without an answer. posts.getDelivery reads its media status; no Pin was requested.",
+          };
+
+        try {
+          return {
+            ...(await resume(workflow.id, target.account, context, true)),
+            targetIndex: target.targetIndex,
+          };
+        } catch (error) {
+          // Every error that leaves resume came before the Pin request or after a stated
+          // rejection, so no Pin exists; the saved workflow says whether it can be continued.
+          return {
+            ...base,
+            delivery,
+            observedAt: now(),
+            state: "failed",
+            code: error instanceof SocialError ? error.code : "upstream_failure",
+            message: "The video Pin could not be continued. Check it with posts.getDelivery.",
+            retryDisposition: { kind: "reconcile-first" },
+          };
+        }
       },
       /** Read-only: reports the stored result or the media status, and never creates a Pin. */
       async getDelivery(
@@ -1259,6 +1370,7 @@ export function pinterest(
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
         authorize(ref, context);
+        rejectSandboxVideo("pinterest.posts.status");
         const { workflow, account } = await loadWorkflow(ref, "pinterest.posts.status");
 
         return settled(workflow, account) ?? (await videoStatus(workflow, account, context));
@@ -1303,9 +1415,12 @@ export function pinterest(
     native: {
       async continueVideoPin(input: PinterestContinueVideoInput): Promise<DeliveryOutcome> {
         authorize(input.delivery, input.context);
+        rejectSandboxVideo("pinterest.posts.publish");
         const { workflow, account } = await loadWorkflow(input.delivery, "pinterest.posts.publish");
 
-        return settled(workflow, account) ?? (await resume(workflow.id, account, input.context));
+        return (
+          settled(workflow, account) ?? (await resume(workflow.id, account, input.context, false))
+        );
       },
       async listBoards(input: PinterestListBoardsInput): Promise<Page<JsonObject>> {
         authorize(input.account, input.context);
@@ -1337,10 +1452,11 @@ export function pinterest(
         );
 
         // Without a privacy filter Pinterest returns every board the token may read, which
-        // includes secret boards when it holds boards:read_secret. Keep only public and protected.
+        // includes secret boards when it holds boards:read_secret. Keep only boards Pinterest marks
+        // public or protected, so a missing or new privacy value is never passed through.
         const items = array(result["items"])
           .map((board) => publicFields(board, boardFields))
-          .filter((board) => board["privacy"] !== "SECRET");
+          .filter((board) => board["privacy"] === "PUBLIC" || board["privacy"] === "PROTECTED");
 
         if (items.some((board) => !numericId(board["id"])))
           throw new SocialError({
