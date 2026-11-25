@@ -44,7 +44,7 @@ Accepted events resolve every referenced account to authorized tenants; events w
 
 ## Errors are redacted
 
-Structured errors never contain credentials, tokens, signatures, media bytes, message content, or private account data. Diagnostics are read-only by default and follow the same redaction rules. For support and reconciliation, log `correlationId`, `upstreamStatus`, `upstreamCode`, and `retryDisposition` from `SocialError` instead of raw responses. `SocialError` does not expose provider request IDs. See the [errors reference](/reference/errors).
+Structured errors never contain credentials, tokens, signatures, media bytes, or message content. They do keep identifiers that a reconciliation needs: the `account` reference (backend, platform, and account ID), and in `details` or the `message` some provider resource IDs, such as a media, container, or photo ID, or a LinkedIn document URN. `operation` can name a provider path that contains account or post IDs, and some routes copy a provider value into `upstreamCode`. Treat a serialized error as tenant data, not as anonymous output. Diagnostics are read-only by default and follow the same redaction rules. For support and reconciliation, log an allowlist such as `code`, `correlationId`, `upstreamStatus`, and `retryDisposition` from `SocialError` instead of raw responses or the full serialized error. `SocialError` does not expose provider request IDs. See the [errors reference](/reference/errors).
 
 ## Native access is explicitly unsafe
 
