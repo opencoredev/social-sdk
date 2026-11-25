@@ -1505,7 +1505,10 @@ category, summary, hook, keywords, contexts, disclaimer, and update time unless 
 
 The filtered stream delivers posts that match rules stored on your X app. Rules and the stream
 connection both use the app-only `appBearerToken`, so they belong to the app rather than to the
-connected account. The `account` argument still passes through your authorization policy.
+connected account. The adapter checks only that `account` is an X account on this backend instance and matches its
+configured X user; native
+methods bypass the client's authorization policy, so check the caller's tenant grant in your own code
+before listing, adding, or deleting rules or opening the stream. See [native access](/concepts/native-access).
 
 Manage rules with `listStreamRules`, `addStreamRules`, and `deleteStreamRules`. Pass
 `dryRun: true` to have X validate rules without saving them. X reports rejected rules, such as
