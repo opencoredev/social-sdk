@@ -119,7 +119,7 @@ function load(path: string) {
   // the product analytics snippet never starts its SDK.
   for (const content of headScripts) runInContext(content, context);
 
-  const tracker = () => appended.find((tag) => tag.src === "/_p/s.js");
+  const tracker = () => appended.findLast((tag) => tag.src === "/_p/s.js");
 
   return {
     sent,
@@ -137,6 +137,18 @@ function load(path: string) {
       tracker()?.onload?.();
     },
     failTracker: () => tracker()?.onerror?.(),
+    // An Astro navigation that swaps <head> before the tracker downloads: the
+    // old tag leaves the document and the loader adds a fresh one.
+    navigateBeforeTrackerLoads: () => {
+      const stale = tracker();
+
+      if (stale) stale.isConnected = false;
+
+      for (const listener of listeners.get("astro:page-load") ?? [])
+        listener({ target: new FakeElement("html"), button: 0 });
+
+      return stale;
+    },
     siteTrack: (event: string, properties: Record<string, string>) =>
       runInContext(
         `window.siteTrack(${JSON.stringify(event)}, ${JSON.stringify(properties)})`,
@@ -242,6 +254,17 @@ test("caps the queue shared with window.siteTrack", () => {
   }
 
   assert.equal(page.pendingJson().split("],[").length, 50);
+});
+
+test("ignores a late failure from a tracker tag a navigation replaced", () => {
+  const page = load("/");
+  const stale = page.navigateBeforeTrackerLoads();
+
+  stale?.onerror?.();
+  page.siteTrack("landing_cta_click", { cta: "primary" });
+  page.startTracker();
+
+  assert.deepEqual(page.sent, [["landing_cta_click", { cta: "primary" }]]);
 });
 
 test("drops queued events when the tracker fails to load", () => {
