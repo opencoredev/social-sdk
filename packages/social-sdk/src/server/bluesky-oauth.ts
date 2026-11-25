@@ -1508,7 +1508,9 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
         displayName: handle ?? token.did,
       };
 
-      if (options.sessionSink !== undefined) {
+      const sessionSink = options.sessionSink;
+
+      if (sessionSink !== undefined) {
         const session: BlueskyOAuthSession = {
           version: 1,
           did: token.did,
@@ -1527,17 +1529,14 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
           }),
         };
 
-        await verifyOrRevoke(
-          () => options.sessionSink!.save({ account, session, attempt: input.attempt }),
-          {
-            endpoint: state.revocationEndpoint,
-            issuer: state.issuer,
-            tokens: issuedTokens(exchanged.json),
-            dpopKey: state.dpopKey,
-            nonce: exchanged.nonce,
-            options,
-          },
-        );
+        await verifyOrRevoke(() => sessionSink.save({ account, session, attempt: input.attempt }), {
+          endpoint: state.revocationEndpoint,
+          issuer: state.issuer,
+          tokens: issuedTokens(exchanged.json),
+          dpopKey: state.dpopKey,
+          nonce: exchanged.nonce,
+          options,
+        });
       }
 
       return [account];

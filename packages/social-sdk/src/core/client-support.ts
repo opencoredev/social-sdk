@@ -1,5 +1,6 @@
 // Helpers shared by createSocial and its opt-in extensions. Not exported from the package.
-import type { InboxSource, PublishCallOptions } from "./client.js";
+import type { InboxSource, PublishCallOptions, PublishRetryPolicy } from "./client.js";
+import { SocialError } from "./errors.js";
 import type {
   AdapterOperationContext,
   PublishRequest,
@@ -117,6 +118,18 @@ export function isNonBlankStringInput<Value>(value: Value): value is Value & str
   return typeof value === "string" && value.trim() !== "";
 }
 
+/**
+ * Narrows an optional adapter surface to one whose optional `key` method is present. Unlike
+ * `adapter.posts?.get !== undefined`, the narrowing holds inside the dispatch callback, and the
+ * method is still called on its owner so `this` is preserved.
+ */
+export function implementsMethod<Surface extends object, Key extends keyof Surface>(
+  surface: Surface | undefined,
+  key: Key,
+): surface is Surface & { readonly [Name in Key]-?: Exclude<Surface[Name], undefined> } {
+  return surface !== undefined && surface[key] !== undefined;
+}
+
 /** The outcome of a claimed target whose outcome was never recorded. */
 export function unrecordedOutcome(
   target: PreparedPublishTarget,
@@ -160,4 +173,88 @@ export function inboxSourceScope(
     source.kind === "comments" ? source.post.postId : "conversations",
     limit,
   ]);
+}
+
+/** A validated `PublishRetryPolicy` with defaults; no policy means one attempt. */
+export function publishRetryPolicy(
+  policy: PublishRetryPolicy | undefined,
+  operation: string,
+): Required<PublishRetryPolicy> {
+  const maxAttempts = policy?.maxAttempts ?? 1;
+  const maxDelayMs = policy?.maxDelayMs ?? 60_000;
+  const capacityDelayMs = policy?.capacityDelayMs ?? 1_000;
+
+  if (
+    !Number.isSafeInteger(maxAttempts) ||
+    maxAttempts < 1 ||
+    maxAttempts > 5 ||
+    !Number.isFinite(maxDelayMs) ||
+    maxDelayMs < 0 ||
+    !Number.isFinite(capacityDelayMs) ||
+    capacityDelayMs < 0
+  )
+    throw new SocialError({
+      code: "invalid_input",
+      operation,
+      message:
+        "retry.maxAttempts must be an integer from 1 through 5, and retry delays must be finite and not negative.",
+    });
+
+  return { maxAttempts, maxDelayMs, capacityDelayMs };
+}
+
+/** How long to wait before sending a target again, or undefined when it must not be resent. */
+export function publishRetryDelay(
+  outcome: DeliveryOutcome,
+  capacityDelayMs: number,
+): number | undefined {
+  if (outcome.state === "not-submitted" && outcome.reason === "capacity") return capacityDelayMs;
+
+  if (outcome.state === "failed" && outcome.retryDisposition.kind === "after-delay") {
+    const delayMs = outcome.retryDisposition.delayMs;
+
+    return Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : undefined;
+  }
+
+  return undefined;
+}
+
+/** Largest timeout delay Node and Bun accept before clamping to 1 ms (2^31 - 1). */
+export const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/** Waits `milliseconds`; resolves false instead of waiting when the caller aborts. */
+export function waitToRetry(milliseconds: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
+
+  if (milliseconds <= 0) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    let remaining = milliseconds;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const abort = () => {
+      if (timer !== undefined) clearTimeout(timer);
+
+      resolve(false);
+    };
+
+    const schedule = () => {
+      const slice = Math.min(remaining, MAX_TIMEOUT_MS);
+      remaining -= slice;
+
+      timer = setTimeout(() => {
+        if (remaining > 0) {
+          schedule();
+
+          return;
+        }
+
+        signal?.removeEventListener("abort", abort);
+        resolve(true);
+      }, slice);
+    };
+
+    signal?.addEventListener("abort", abort, { once: true });
+    schedule();
+  });
 }

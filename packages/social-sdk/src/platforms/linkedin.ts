@@ -1,4 +1,4 @@
-import { remainingBudget } from "../transport/budget.js";
+import { remainingBudget, requestBudget } from "../transport/budget.js";
 import { definedFields } from "../core/fields.js";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError } from "../core/errors.js";
@@ -1586,7 +1586,7 @@ export function linkedin(
   ): Promise<HttpExchange> {
     try {
       return await http.exchange({
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: method !== "GET" }),
         url: new URL(`https://api.linkedin.com${path}`),
         headers: path.startsWith("/v2/")
           ? { Authorization: `Bearer ${options.auth.accessToken}`, ...extraHeaders }
@@ -1923,9 +1923,12 @@ export function linkedin(
 
     const source = media.source;
 
+    const mimeType = media.mimeType;
+
     if (
       media.kind !== "image" ||
-      !["image/jpeg", "image/png", "image/gif"].includes(media.mimeType ?? "") ||
+      mimeType === undefined ||
+      !["image/jpeg", "image/png", "image/gif"].includes(mimeType) ||
       (source.kind !== "blob" && source.kind !== "stream")
     )
       throw new SocialError({
@@ -1971,7 +1974,7 @@ export function linkedin(
       await upload({
         url: string(initialized["uploadUrl"]),
         source: {
-          mimeType: media.mimeType!,
+          mimeType,
           ...definedFields({ size }),
           open: source.kind === "blob" ? () => source.blob.stream() : source.open,
         },

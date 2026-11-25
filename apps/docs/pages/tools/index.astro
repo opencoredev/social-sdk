@@ -1,0 +1,8 @@
+---
+// Developer tools index. The copy and rendering live in _tools/tools.ts.
+import { withAnalytics } from "../../analytics";
+import { withFonts } from "../_home/fonts";
+import { renderToolsIndex } from "../_tools/tools";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderToolsIndex()))} />

@@ -162,6 +162,10 @@ export const ayrshareAlternatives: Guide = {
             <li><strong>You want your own platform apps.</strong> Posts then come from your app, your users authorize you, and nothing sits between your server and the network.</li>
             <li><strong>You want fewer moving parts.</strong> If you post to one or two networks, a vendor for all fourteen may be more than you need.</li>
           </ul>
+          <p>
+            To compare a per-profile bill with posting through each platform's own API at your
+            own rates, use the <a href="/tools/api-cost-calculator">API cost calculator</a>.
+          </p>
 
           <h2 id="three-kinds">The three kinds of alternative</h2>
           <table>

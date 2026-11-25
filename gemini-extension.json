@@ -1,0 +1,5 @@
+{
+  "name": "social-sdk",
+  "version": "0.5.0",
+  "description": "Integrate the open-source Social SDK into a TypeScript app: choose a backend, connect authorized accounts, publish mock-first, render per-destination outcomes, and verify webhooks."
+}

@@ -138,8 +138,12 @@ interface OAuthSession {
   bufferVerifier?: string | undefined;
 }
 
-export function startOAuth(session: OAuthSession, clientId: string, redirectUri: string): string {
-  const pkce = createBufferPkce();
+export async function startOAuth(
+  session: OAuthSession,
+  clientId: string,
+  redirectUri: string,
+): Promise<string> {
+  const pkce = await createBufferPkce();
   session.bufferState = crypto.randomUUID();
   session.bufferVerifier = pkce.codeVerifier;
 
