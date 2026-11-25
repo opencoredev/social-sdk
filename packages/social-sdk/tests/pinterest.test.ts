@@ -1770,6 +1770,40 @@ test("getDelivery settles a workflow whose media failed, without a Pin request",
   );
 });
 
+test("getDelivery on failed media leaves a claimed workflow to its holder", async () => {
+  const workflowStore = new MemoryPinterestWorkflowStore();
+
+  const workflow = await workflowStore.create({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "processing",
+  });
+
+  assert.equal(await workflowStore.claim(workflow.id), true);
+
+  const { fetch } = route({
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("failed"))],
+  });
+
+  const { social } = client(fetch, { workflowStore });
+
+  const status = await social.posts.getDelivery({
+    kind: "delivery",
+    version: 1,
+    backend: "default",
+    platform: "pinterest",
+    accountId,
+    deliveryId: workflow.id,
+  });
+
+  assert.equal(status.state, "processing");
+  assert.equal(status.backendState, "CLAIMED");
+  assert.equal((await workflowStore.get(workflow.id))?.stage, "processing");
+  assert.equal(await workflowStore.claim(workflow.id), false);
+});
+
 test("a published row needs a numeric Pin ID to count as settled", async () => {
   let time = 0;
   const workflowStore = new MemoryPinterestWorkflowStore({ retentionMs: 1, now: () => time });
