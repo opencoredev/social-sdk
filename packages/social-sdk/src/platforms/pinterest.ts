@@ -192,7 +192,7 @@ export interface MemoryPinterestWorkflowStoreOptions {
 }
 
 function settledWorkflow(row: PinterestVideoWorkflow): boolean {
-  return row.stage === "failed" || (row.stage === "published" && row.pinId !== undefined);
+  return row.stage === "failed" || (row.stage === "published" && numericId(row.pinId));
 }
 
 function storeLimit(value: number | undefined, fallback: number, minimum: number): number {
@@ -765,7 +765,7 @@ export function pinterest(
 
     if (row.stage === "processing") return undefined;
 
-    if (row.stage === "published" && row.pinId !== undefined)
+    if (row.stage === "published" && numericId(row.pinId))
       return published(account, row.pinId, delivery);
 
     if (row.stage === "failed")
@@ -925,7 +925,19 @@ export function pinterest(
       observedAt: now(),
     };
 
-    if (media["media_id"] === workflow.mediaId && status === "failed")
+    if (media["media_id"] === workflow.mediaId && status === "failed") {
+      // Settle the row locally so the store can reclaim it; no Pinterest write is sent.
+      await (async () => {
+        if (!(await workflows.claim(workflow.id))) return;
+
+        try {
+          if ((await workflows.get(workflow.id))?.stage === "processing")
+            await workflows.update(workflow.id, { stage: "failed" });
+        } finally {
+          await workflows.release(workflow.id);
+        }
+      })().catch(() => undefined);
+
       return {
         ...base,
         state: "failed",
@@ -935,6 +947,7 @@ export function pinterest(
         message: "Pinterest could not process the uploaded video. No Pin was created.",
         retryDisposition: { kind: "never" },
       };
+    }
 
     if (
       media["media_id"] !== workflow.mediaId ||

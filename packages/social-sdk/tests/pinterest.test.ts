@@ -1735,6 +1735,58 @@ test("settled workflows expire on lookup, and a published row without a Pin ID i
   assert.equal((await workflowStore.get(claimed.id))?.stage, "failed");
 });
 
+test("getDelivery settles a workflow whose media failed, without a Pin request", async () => {
+  const workflowStore = new MemoryPinterestWorkflowStore();
+
+  const workflow = await workflowStore.create({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "processing",
+  });
+
+  const { fetch, calls } = route({
+    ["GET " + api + "/v5/media/12345"]: [json(fixtures.media("failed"))],
+  });
+
+  const { social } = client(fetch, { workflowStore });
+
+  const status = await social.posts.getDelivery({
+    kind: "delivery",
+    version: 1,
+    backend: "default",
+    platform: "pinterest",
+    accountId,
+    deliveryId: workflow.id,
+  });
+
+  assert.equal(status.state, "failed");
+  assert.equal((await workflowStore.get(workflow.id))?.stage, "failed");
+  assert.equal(await workflowStore.claim(workflow.id), true);
+  assert.deepEqual(
+    calls.map((call) => call.method + " " + call.url.pathname),
+    ["GET /v5/media/12345"],
+  );
+});
+
+test("a published row needs a numeric Pin ID to count as settled", async () => {
+  let time = 0;
+  const workflowStore = new MemoryPinterestWorkflowStore({ retentionMs: 1, now: () => time });
+
+  const workflow = await workflowStore.create({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "published",
+    pinId: "",
+  });
+
+  time = 5;
+  assert.equal((await workflowStore.get(workflow.id))?.stage, "published");
+});
+
 test("memory limits must be safe integers in range", () => {
   for (const options of [
     { maxWorkflows: Number.NaN },
