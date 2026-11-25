@@ -171,6 +171,17 @@
       ],
       "capabilities": [
         {
+          "platform": "*",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          }
+        },
+        {
           "platform": "x",
           "operation": "accounts.read",
           "availability": "available",
@@ -3205,6 +3216,17 @@
       ],
       "capabilities": [
         {
+          "platform": "*",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          }
+        },
+        {
           "platform": "x",
           "operation": "accounts.read",
           "availability": "available",
@@ -4769,6 +4791,17 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "*",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          }
+        },
         {
           "platform": "x",
           "operation": "accounts.read",
@@ -6524,6 +6557,17 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "*",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          }
+        },
         {
           "platform": "x",
           "operation": "accounts.read",
@@ -11104,6 +11148,17 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "*",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          }
+        },
         {
           "platform": "x",
           "operation": "accounts.read",
