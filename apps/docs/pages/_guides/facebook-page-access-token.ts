@@ -1,8 +1,8 @@
 // The Facebook Page access token guide. Facts about Meta's tokens, permissions
 // and errors cite Meta's own pages with the date each was read. The TypeScript
 // example type-checks under strict settings and was run against a stubbed fetch.
-// Social SDK's Facebook adapter is on main but not in npm 0.5.0, so the guide
-// says so and shows no SDK sample for it.
+// Social SDK's Facebook adapter ships in npm 0.6.0 (./facebook); the guide links
+// its platform page and shows no SDK sample for it.
 import { escapeHtml } from "../_blog/render";
 import type { Guide } from "./guides";
 
@@ -166,7 +166,7 @@ export const facebookPageAccessToken: Guide = {
   heading: "Facebook Page access tokens, explained",
   lede: "A Facebook Page access token lets your server publish and read as a Page through the Graph API. You can't create one directly: a person with a task on the Page logs in to your app, you exchange their user token for a long-lived one, then call <code>/me/accounts</code>. Page tokens made from a long-lived user token have no expiration date, though Meta can still invalidate them.",
   published: "2026-11-03",
-  updated: "2026-11-06",
+  updated: "2026-11-26",
   content: `
           <h2 id="token-types">Which Facebook access token you need</h2>
           <p>
@@ -357,7 +357,7 @@ export const facebookPageAccessToken: Guide = {
               <tr><td><code>190</code> with subcode <code>460</code></td><td>The person changed their password or logged out. Ask them to log in again.</td></tr>
               <tr><td><code>190</code> with subcode <code>458</code></td><td>The person removed your app or never authorized it.</td></tr>
               <tr><td>Subcode <code>492</code></td><td>The person behind the Page token no longer has a suitable role on the Page.</td></tr>
-              <tr><td><code>10</code> or <code>200</code>–<code>299</code></td><td>A permission is missing or was removed. Request it again.</td></tr>
+              <tr><td><code>10</code> or <code>200</code> to <code>299</code></td><td>A permission is missing or was removed. Request it again.</td></tr>
               <tr><td><code>4</code>, <code>17</code>, or <code>341</code></td><td>Throttling. Wait, retry, and check your call volume in the App Dashboard.</td></tr>
               <tr><td><code>506</code></td><td>Duplicate post. Change the content before trying again.</td></tr>
               <tr><td><code>368</code></td><td>Temporarily blocked for a policy violation.</td></tr>
@@ -400,13 +400,14 @@ export const facebookPageAccessToken: Guide = {
           <h2 id="social-sdk">Facebook Pages in Social SDK</h2>
           <p>
             <a href="/">Social SDK</a> is an open-source TypeScript library for posting to social
-            platforms from your own backend. Its Facebook adapter is on the main branch and not in
-            the current npm release (0.5.0); the
+            platforms from your own backend. Its Facebook adapter ships in the 0.6.0 npm release as
+            <code>@opencoredev/social-sdk/facebook</code>; the
             <a href="/docs/platforms/facebook">Facebook platform page</a> documents it.
             <code>discoverFacebookPages</code> lists the Pages a user token can manage, with each
             Page token and a <code>canPublish</code> flag set when the person has
             <code>CREATE_CONTENT</code>. The adapter takes one Page ID and token, rejects any other
-            Page, and turns error <code>190</code> into a <code>reconnect_required</code> outcome.
+            Page, and turns error <code>190</code> into a failed outcome with the code
+            <code>reconnect_required</code>.
             Pass your app secret as <code>appSecret</code> and every Graph call from the adapter
             carries <code>appsecret_proof</code>, so you can keep Require App Secret turned on;
             <code>discoverFacebookPages</code> takes the same option. Server helpers
@@ -415,7 +416,7 @@ export const facebookPageAccessToken: Guide = {
             <code>debug_token</code> steps above.
           </p>
           <p>
-            In 0.5.0 you can already post to Instagram, X, LinkedIn, Bluesky, Threads, TikTok, and
+            The same release also posts to Instagram, X, LinkedIn, Bluesky, Threads, TikTok, and
             YouTube (see the <a href="/docs/platforms">supported platforms</a>), or build without
             any credentials using the <a href="/docs/getting-started/mock-quickstart">mock quickstart</a>.
           </p>
