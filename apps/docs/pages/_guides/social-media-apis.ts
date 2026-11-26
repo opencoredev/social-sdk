@@ -76,7 +76,7 @@ export const socialMediaApis: Guide = {
   heading: "Social media APIs for developers",
   lede: "A social media API lets your code publish, read, or manage posts on a social network. There are three ways to get one: call each platform's own API (X, Bluesky, Threads, Instagram, LinkedIn, TikTok, YouTube) with your own developer app, pay a unified social media API provider that stores the account connections and gives you one endpoint, or use an open-source library that wraps the platform APIs in one interface while you keep your own apps and tokens. This page compares the three, lists what each platform requires before you can post, and ends with a tested example.",
   published: "2026-10-30",
-  updated: "2026-10-30",
+  updated: "2026-11-26",
   content: `
           <p>
             Platform facts below come from each platform's own developer documentation, and
@@ -176,7 +176,7 @@ export const socialMediaApis: Guide = {
             networks behind one <code>posts.publish</code> call. It has direct adapters for X,
             Bluesky, Threads, Instagram, LinkedIn, TikTok, and YouTube, so the platform apps and
             tokens stay yours, and it can also run the same call through managed backends,
-            Zernio, Post for Me, and PostFast in the 0.5.0 npm release. Every call returns one
+            Zernio, Post for Me, PostFast, Postiz, and Buffer in the 0.6.0 npm release. A completed <code>publish</code> returns one
             typed outcome per destination, including <code>unknown</code> when a write may or
             may not have landed, so your code can check before it retries instead of posting
             twice.
@@ -192,8 +192,8 @@ export const socialMediaApis: Guide = {
           <pre><code>npm install @opencoredev/social-sdk</code></pre>
           ${code(sdkExample)}
           <p>
-            We type-checked this against <code>@opencoredev/social-sdk</code> 0.5.0 from npm and
-            ran it on ${fetched} on Node.js 24 with a stub <code>fetch</code>. It made one
+            We type-checked this against <code>@opencoredev/social-sdk</code> 0.6.0 from npm and
+            ran it on 26 November 2026 on Node.js 24 with a stub <code>fetch</code>. It made one
             <code>POST https://api.x.com/2/tweets</code> and one
             <code>com.atproto.repo.createRecord</code> call to <code>bsky.social</code>, and
             printed <code>x published</code> and <code>bluesky published</code>. To try it with no

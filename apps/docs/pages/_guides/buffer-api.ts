@@ -10,19 +10,19 @@ const fetched = "29 October 2026";
 
 const docs = "https://developers.buffer.com";
 
-const quickStart = `${docs}/guides/getting-started`;
+const quickStart = `${docs}/guides/getting-started.html`;
 
-const authentication = `${docs}/guides/authentication`;
+const authentication = `${docs}/guides/authentication.html`;
 
-const buildingApps = `${docs}/guides/building-apps`;
+const buildingApps = `${docs}/guides/building-apps.html`;
 
-const limits = `${docs}/guides/api-limits`;
+const limits = `${docs}/guides/api-limits.html`;
 
-const scheduling = `${docs}/guides/posts-and-scheduling`;
+const scheduling = `${docs}/guides/posts-and-scheduling.html`;
 
-const hostingMedia = `${docs}/guides/hosting-media`;
+const hostingMedia = `${docs}/guides/hosting-media.html`;
 
-const migration = `${docs}/guides/rest-migration`;
+const migration = `${docs}/guides/rest-migration.html`;
 
 const helpCenter = "https://support.buffer.com/articles/using-buffers-api-GtIYIQilz5";
 
@@ -132,7 +132,7 @@ export const bufferApi: Guide = {
   heading: "The Buffer API, explained",
   lede: "Yes, Buffer has a public API again. It is a GraphQL API at api.buffer.com, and Buffer's help center, read 29 October 2026, says it is included on every Buffer plan, including Free. A personal API key acts on your own Buffer account; apps that act for other Buffer users register an OAuth client and use the authorization-code flow with PKCE. The old REST API at api.bufferapp.com is the legacy version, and Buffer publishes a guide for moving off it.",
   published: "2026-10-29",
-  updated: "2026-10-29",
+  updated: "2026-11-26",
   content: `
           <p>
             Facts on this page come from Buffer's
@@ -213,7 +213,7 @@ export const bufferApi: Guide = {
           ${code(bufferExample)}
           <p>
             We type-checked this against Buffer's
-            <a href="${docs}/reference">GraphQL reference</a> types and ran it on ${fetched} with
+            <a href="${docs}/reference.html">GraphQL reference</a> types and ran it on ${fetched} with
             a stub <code>fetch</code> standing in for <code>api.buffer.com</code>. With the
             Bluesky channel in the second of two organizations, it made four requests and printed
             <code>scheduled</code> with the post's ID and time. A stubbed
@@ -360,16 +360,15 @@ export const bufferApi: Guide = {
             PKCE helpers, scheduling, media URLs, and how Buffer statuses map to outcomes.
           </p>
           <p>
-            The Buffer adapter is on the main branch and not yet in the 0.5.0 npm release, which
-            includes the Zernio, Post for Me, and PostFast backends and the direct adapters. You
-            can write and test your posting code today against the mock backend, which needs no
-            keys:
+            The Buffer adapter ships in the 0.6.0 npm release, alongside the Zernio, Post for Me,
+            PostFast, and Postiz backends and the direct adapters. You can write and test your
+            posting code against the mock backend first, which needs no keys:
           </p>
           <pre><code>npm install @opencoredev/social-sdk</code></pre>
           ${code(sdkExample)}
           <p>
-            We type-checked this against <code>@opencoredev/social-sdk</code> 0.5.0 from npm and
-            ran it on ${fetched}. It printed <code>x published</code> and
+            We type-checked this against <code>@opencoredev/social-sdk</code> 0.6.0 from npm and
+            ran it on 26 November 2026. It printed <code>x published</code> and
             <code>bluesky failed</code>: the <code>mixed-success-failure</code> scenario fails
             every second target, so you can see how your code handles a partial result. The
             <a href="/docs/getting-started/mock-quickstart">mock quickstart</a> has the other
@@ -418,6 +417,6 @@ export const bufferApi: Guide = {
             <li><a href="${hostingMedia}">Hosting media</a>: public URL requirements</li>
             <li><a href="${limits}">Rate limits</a>: plan and app client limits, headers, 429 handling, query limits</li>
             <li><a href="${migration}">REST API migration</a>: legacy endpoint mapping</li>
-            <li><a href="${docs}/reference">API reference</a>: <code>createPost</code>, <code>ShareMode</code>, <code>SchedulingType</code>, <code>PostStatus</code></li>
+            <li><a href="${docs}/reference.html">API reference</a>: <code>createPost</code>, <code>ShareMode</code>, <code>SchedulingType</code>, <code>PostStatus</code></li>
           </ul>`,
 };
