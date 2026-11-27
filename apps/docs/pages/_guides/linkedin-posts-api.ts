@@ -119,7 +119,7 @@ export const linkedinPostsApi: Guide = {
   heading: "The LinkedIn Posts API, explained",
   lede: "To post to LinkedIn from code, send <code>POST https://api.linkedin.com/rest/posts</code> with the author's URN, the post text, and two required headers: <code>Linkedin-Version</code> (a monthly version such as <code>202610</code>) and <code>X-Restli-Protocol-Version: 2.0.0</code>. Posting as a member needs <code>w_member_social</code> from the self-serve Share on LinkedIn product. Posting as a company Page needs <code>w_organization_social</code> from the Community Management API, which LinkedIn reviews, plus a Page role. A created post comes back as a URN in the <code>x-restli-id</code> header.",
   published: "2026-10-31",
-  updated: "2026-11-24",
+  updated: "2026-11-27",
   content: `
           <h2 id="is-it-free">Is the LinkedIn API free?</h2>
           <p>
@@ -338,13 +338,16 @@ export const linkedinPostsApi: Guide = {
           <pre><code>npm install @opencoredev/social-sdk</code></pre>
           ${code(sdkExample)}
           <p>
-            We type-checked this example against <code>@opencoredev/social-sdk</code> 0.5.0 from npm
-            and ran it on ${fetched} with Node.js 24 and Bun, using a stub <code>fetch</code> in
+            We type-checked this example against <code>@opencoredev/social-sdk</code> 0.6.0 from npm
+            and ran it on 27 November 2026 with Node.js 24 and Bun, using a stub <code>fetch</code> in
             place of LinkedIn. It sent one <code>POST /rest/posts</code> with
             <code>Linkedin-Version: 202610</code> and the parentheses escaped, and printed the post
-            URL. Two limits to know in 0.5.0: it escapes every reserved character, so
-            <code>#</code> and <code>@</code> come out as plain text rather than hashtags or
-            mentions, and it rejects text over 3,000 characters before sending. Running the
+            URL. Two rules to know in 0.6.0: it escapes every reserved character, so
+            <code>#</code> and <code>@</code> come out as plain text unless you mark a hashtag or
+            mention in the target's <code>annotations</code> option. Each entry has a
+            <code>kind</code> (<code>hashtag</code> or <code>mention</code>) and a
+            <code>start</code> and <code>length</code> in your text; a mention covers the name
+            without the <code>@</code> and needs a person or organization URN. It also rejects text over 3,000 characters before sending. Running the
             script again creates a second post; to make retries safe, give the client a durable
             <a href="/docs/concepts/idempotency">idempotency store</a> and pass an
             <code>idempotencyKey</code>.

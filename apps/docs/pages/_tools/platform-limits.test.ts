@@ -3,16 +3,16 @@ import { test } from "node:test";
 
 import { renderPlatformLimits, scopesHtml } from "./platform-limits";
 
-test("leaves Facebook unchecked and out of the default snippet", () => {
+test("checks every platform, Facebook included, in the form and the default snippet", () => {
   const html = renderPlatformLimits();
 
-  assert.match(html, /<input type="checkbox" name="platforms" value="facebook" \/>/);
+  assert.match(html, /<input type="checkbox" name="platforms" value="facebook" checked \/>/);
   assert.match(html, /<input type="checkbox" name="platforms" value="x" checked \/>/);
 
   const snippet = /<code[^>]*id="snippet"[^>]*>([\s\S]*?)<\/code>/.exec(html)?.[1] ?? "";
 
   assert.ok(snippet.includes("social-sdk/youtube"), "the snippet is found");
-  assert.ok(!snippet.includes("facebook"));
+  assert.ok(snippet.includes("social-sdk/facebook"));
 });
 
 test("breaks scope tokens only between their parts", () => {

@@ -128,7 +128,7 @@ export const youtubeUploadApi: Guide = {
   heading: "The YouTube upload API, explained",
   lede: "To upload a video from code, send a <code>POST</code> to <code>/upload/youtube/v3/videos</code> on <code>www.googleapis.com</code> (the YouTube Data API's <code>videos.insert</code> method) with an OAuth access token that has the <code>youtube.upload</code> scope. Use the resumable protocol: one request sends the video's metadata and returns a session URI, and the file goes to that URI in one or more <code>PUT</code> requests. Since June 2026 uploads have their own quota bucket: a project gets 100 <code>videos.insert</code> calls a day by default, and each costs 1 unit.",
   published: "2026-11-01",
-  updated: "2026-11-25",
+  updated: "2026-11-27",
   content: `
           <h2 id="videos-insert">What videos.insert does</h2>
           <p>
@@ -165,7 +165,7 @@ export const youtubeUploadApi: Guide = {
             <code>videos.insert</code> reference doesn't list this field among the settable ones
             yet; the <a href="${videosResource}">videos resource</a> documents it. The
             <a href="/docs/platforms/youtube">Social SDK YouTube adapter</a> doesn't send it in
-            0.5.0.
+            0.6.0.
           </p>
           <p>
             If you leave out <code>privacyStatus</code>, the video is public, although a
@@ -323,17 +323,19 @@ export const youtubeUploadApi: Guide = {
           <pre><code>npm install @opencoredev/social-sdk</code></pre>
           ${code(sdkExample)}
           <p>
-            We type-checked this example against <code>@opencoredev/social-sdk</code> 0.5.0 from
-            npm and ran it on ${fetched} with Node.js 24 and Bun, using a stub <code>fetch</code>
+            We type-checked this example against <code>@opencoredev/social-sdk</code> 0.6.0 from
+            npm and ran it on 27 November 2026 with Node.js 24 and Bun, using a stub <code>fetch</code>
             in place of Google and a 20 MB test file. It sent one <code>POST</code> with
             <code>uploadType=resumable</code>, a <code>private</code> status and
             <code>selfDeclaredMadeForKids: false</code>, saved the session file with mode
             <code>0600</code> before any bytes went out, then sent three <code>PUT</code> chunks.
             It printed the processing line when the stub answered <code>uploaded</code> and the
-            watch URL when it answered <code>processed</code>. In 0.5.0 the adapter reads the
+            watch URL when it answered <code>processed</code>. In 0.6.0 the adapter reads the
             video from a <code>Blob</code> or a replayable stream (it doesn't fetch remote URLs),
             caps titles at 100 characters and descriptions at 5,000 UTF-8 bytes, rejects
-            <code>&lt;</code> and <code>&gt;</code> in titles, and doesn't set tags or a category.
+            <code>&lt;</code> and <code>&gt;</code> in titles, and sets tags or a category only when
+            you pass <code>tags</code> or a <code>categoryId</code> (a numeric ID as a string, such
+            as <code>"28"</code>) in the target's <code>options</code>.
             Pass <code>schedule: { at: "2026-12-01T15:00:00Z" }</code> to
             <code>posts.publish</code>, next to <code>targets</code>, and it uploads the video
             private with that <code>publishAt</code> time. If your own queue should decide when

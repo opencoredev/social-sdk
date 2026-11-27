@@ -251,16 +251,6 @@ ${fields.join("\n")}
 /** The post text the cost calculator's sample sends. */
 export const SNIPPET_TEXT = "Shipped v2 today. Notes: https://example.com/changelog";
 
-/** The npm release that predates the Facebook subpath, checked on 23 November 2026. */
-export const FACEBOOK_SUBPATH_NOTE =
-  "The ./facebook subpath is on main and not in the npm release 0.5.0 (checked 23 November 2026).";
-
-/**
- * The platforms whose subpaths ship in the npm release, so the default sample
- * type-checks against `@opencoredev/social-sdk@0.5.0`. Facebook is opt-in.
- */
-export const npmPlatformIds: readonly PlatformId[] = platformIds.filter((id) => id !== "facebook");
-
 /** A runnable sample that prepares, then publishes, one post to each platform given. */
 export function socialSnippet(
   selected: readonly PlatformId[],
@@ -307,7 +297,6 @@ export function socialSnippet(
       ? `import { createSocial, connectedAccountRef, type MediaAttachment } from "@opencoredev/social-sdk";`
       : `import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";`,
     ...platforms.map((id) => parts[id].importLine),
-    ...(has("facebook") ? [`// ${FACEBOOK_SUBPATH_NOTE}`] : []),
     "",
     `const env = (name: string): string => {
   const value = process.env[name];

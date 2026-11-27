@@ -33,8 +33,6 @@ const fieldErrors: Readonly<Record<MediaField, HTMLElement>> = {
   size: element("media-size-error", HTMLElement),
 };
 
-const facebookNote = element("facebook-note", HTMLElement);
-
 const platformBoxes = elements('#preflight input[name="platforms"]', HTMLInputElement);
 
 const mediaRadios = elements('#preflight input[name="media"]', HTMLInputElement);
@@ -92,7 +90,6 @@ function update(): void {
   fields.count.hidden = kind !== "carousel";
   fields.seconds.hidden = kind !== "video";
   fields.size.hidden = kind === "none";
-  facebookNote.hidden = !platforms.includes("facebook");
   showFieldErrors(parsed);
 
   if (parsed.kind === "error") {
