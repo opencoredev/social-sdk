@@ -3,10 +3,10 @@
 // complete reference without JavaScript; limits.client.ts makes it live.
 import { escapeHtml } from "./escape";
 import { cloudCallout } from "../_cloud/cloud";
-import { platformSpecs, textLimitLabel, type PlatformSpec } from "./platforms";
+import { platformIds, platformSpecs, textLimitLabel, type PlatformSpec } from "./platforms";
 import { preflight, type MediaPlan } from "./preflight";
 import { renderResults, summary } from "./preflight-view";
-import { FACEBOOK_SUBPATH_NOTE, npmPlatformIds, socialSnippet } from "./snippet";
+import { socialSnippet } from "./snippet";
 import {
   breadcrumbs,
   codeBlock,
@@ -350,12 +350,12 @@ function matrixRow(spec: PlatformSpec): string {
 }
 
 function checker(): string {
-  const results = preflight(SAMPLE_POST, npmPlatformIds, sampleMedia);
+  const results = preflight(SAMPLE_POST, platformIds, sampleMedia);
 
   const platformChips = platformSpecs
     .map(
       (spec) =>
-        `<label class="chip"><input type="checkbox" name="platforms" value="${spec.id}"${npmPlatformIds.includes(spec.id) ? " checked" : ""} /><span>${escapeHtml(spec.name)}</span></label>`,
+        `<label class="chip"><input type="checkbox" name="platforms" value="${spec.id}" checked /><span>${escapeHtml(spec.name)}</span></label>`,
     )
     .join("\n                ");
 
@@ -386,7 +386,6 @@ function checker(): string {
               <div class="chips">
                 ${platformChips}
               </div>
-              <p class="hint" id="facebook-note" hidden>Facebook: ${escapeHtml(FACEBOOK_SUBPATH_NOTE)}</p>
             </fieldset>
             <fieldset class="field">
               <legend>Media</legend>
@@ -450,9 +449,9 @@ export function renderPlatformLimits(): string {
               carousel aspect ratios. <code>social.posts.prepare</code> returns a typed issue
               for every target that breaks a rule, before any request is sent. The sample
               follows the platforms and text above and type-checks against the npm release
-              0.5.0; Facebook's subpath isn't in that release yet.
+              0.6.0.
             </p>
-            ${codeBlock("snippet", socialSnippet(npmPlatformIds, SAMPLE_POST), "preflight.ts")}
+            ${codeBlock("snippet", socialSnippet(platformIds, SAMPLE_POST), "preflight.ts")}
           </section>
           <section aria-labelledby="how-heading">
             <h2 id="how-heading">How the checker counts</h2>

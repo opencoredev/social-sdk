@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { platformIds } from "./platforms";
-import { FACEBOOK_SUBPATH_NOTE, npmPlatformIds, socialSnippet } from "./snippet";
+import { socialSnippet } from "./snippet";
 
 test("imports only the selected adapters, in a stable order", () => {
   const code = socialSnippet(["threads", "x"], "Hi");
@@ -23,9 +23,11 @@ test("adds media for platforms that need it", () => {
   assert.ok(code.includes("madeForKids: false"));
 });
 
-test("notes that the Facebook subpath isn't on npm yet", () => {
-  assert.ok(socialSnippet(["facebook"], "Hi").includes(FACEBOOK_SUBPATH_NOTE));
-  assert.ok(!socialSnippet(["x"], "Hi").includes(FACEBOOK_SUBPATH_NOTE));
+test("imports the Facebook adapter from its npm subpath", () => {
+  const code = socialSnippet(["facebook"], "Hi");
+
+  assert.ok(code.includes('import { facebook } from "@opencoredev/social-sdk/facebook";'));
+  assert.ok(!code.includes("not in the npm release"));
 });
 
 test("embeds the post text as a string literal", () => {
@@ -44,12 +46,10 @@ test("asks for a platform when none is selected", () => {
   assert.match(socialSnippet([], "Hi"), /Pick at least one platform/);
 });
 
-test("the default platforms are the ones npm 0.5.0 ships, without Facebook", () => {
-  assert.deepEqual(
-    [...npmPlatformIds],
-    platformIds.filter((id) => id !== "facebook"),
-  );
-  assert.ok(!socialSnippet(npmPlatformIds, "Hi").includes("facebook"));
+test("a sample for every platform imports every adapter, Facebook included", () => {
+  const code = socialSnippet(platformIds, "Hi");
+
+  for (const id of platformIds) assert.ok(code.includes(`"@opencoredev/social-sdk/${id}"`), id);
 });
 
 test("preserves selected image and carousel media in the generated snippet", () => {
