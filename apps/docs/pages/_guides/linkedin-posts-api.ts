@@ -346,8 +346,9 @@ export const linkedinPostsApi: Guide = {
             <code>#</code> and <code>@</code> come out as plain text unless you mark a hashtag or
             mention in the target's <code>annotations</code> option. Each entry has a
             <code>kind</code> (<code>hashtag</code> or <code>mention</code>) and a
-            <code>start</code> and <code>length</code> in your text; a mention covers the name
-            without the <code>@</code> and needs a person or organization URN. It also rejects text over 3,000 characters before sending. Running the
+            <code>start</code> and <code>length</code> in your text (JavaScript string offsets). A
+            hashtag's range includes the <code>#</code>; a mention's range covers the name without
+            the <code>@</code> and needs a person or organization URN. It also rejects text over 3,000 characters before sending. Running the
             script again creates a second post; to make retries safe, give the client a durable
             <a href="/docs/concepts/idempotency">idempotency store</a> and pass an
             <code>idempotencyKey</code>.
