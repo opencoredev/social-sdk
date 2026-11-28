@@ -1,5 +1,31 @@
 # @opencoredev/social-sdk
 
+## 0.7.0
+
+### Minor Changes
+
+- 20edd14: Add a direct Pinterest adapter at `@opencoredev/social-sdk/pinterest` (Pinterest API v5). `posts.publish` creates image Pins and carousels of 2 to 5 images from HTTPS URLs, or from JPEG and PNG Blobs as base64 with `imageBase64: true`, and video Pins from a Blob through the media upload flow. A video that is still processing returns a `processing` outcome; `posts.getDelivery` reports its status read-only, and `native.continueVideoPin` creates the Pin from a `PinterestWorkflowStore` once the upload is ready. `posts.removeFromPlatform` deletes a Pin, `accounts.list` and `accounts.get` read the user account, and `native.listBoards` lists public and protected boards for the required `boardId` option. Set `sandbox: true` to use `api-sandbox.pinterest.com`, which cannot create video Pins. The CLI lists the adapter as `pinterest` for offline capability checks.
+- 9d2956c: `answerYouTubeWebhookChallenge` now verifies a hub request against the subscribe and unsubscribe requests the application has pending, matching both topic and mode. Before, any listed topic was confirmed for either mode, so an unsubscribe nobody requested could be confirmed. Requests that match no pending intent are refused with `not_found` (HTTP 404).
+
+  **Breaking change.** The `topics` option is replaced by `pending`, a list of `{ topic, mode }` entries.
+
+  Migration: store each request you send to the hub as `{ topic, mode }`, and pass the stored requests that are still awaiting verification:
+
+  ```ts
+  // Before
+  answerYouTubeWebhookChallenge({ query, topics: [topic] });
+
+  // After: `pending` is your stored list of unverified hub requests
+  answerYouTubeWebhookChallenge({ query, pending });
+  ```
+
+  List an unsubscribe only while you have one in flight, and drop each entry once the hub has verified it.
+
+### Patch Changes
+
+- 7baa860: `analytics.getAccountMetrics` no longer falls back to `analytics.read` when the authorization policy denies `analytics.account.read`. The fallback now applies only when the policy returns no decision for the account under `analytics.account.read`; an explicit `allowed: false` rejects the call, and when a policy returns several decisions for the same account, any denial wins with `unauthorized` before any request is sent.
+- 05742fe: Bound the Pinterest adapter's memory use. `MemoryPinterestWorkflowStore` now takes `maxWorkflows` (default 1,000), `retentionMs` (default 24 hours) and an optional monotonic `now` clock: at the cap a new video Pin fails before its file is uploaded, and a settled workflow (`failed`, or `published` with its Pin ID) is removed by the first `create` or lookup after the retention window. Workflows still `processing` or `creating`, and claimed rows, are never removed. A `published` row counts as settled only with a numeric Pin ID. With `imageBase64: true`, the new `maxBase64Bytes` option (default 50 MB) limits the total Blob bytes in one Pin; preparation checks it from `Blob.size` before reading any Blob and reports `pinterest.image_size`, and images are encoded one at a time. Each limit must be a safe integer in range, or the constructor throws `invalid_config`.
+
 ## 0.6.0
 
 ### Minor Changes

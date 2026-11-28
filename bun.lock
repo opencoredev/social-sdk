@@ -49,7 +49,7 @@
     },
     "packages/social-sdk": {
       "name": "@opencoredev/social-sdk",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "bin": {
         "social-sdk": "dist/cli.js",
       },
