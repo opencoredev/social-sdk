@@ -14,9 +14,9 @@ The deterministic testing backend is the safe first integration target. It ships
 @opencoredev/social-sdk
 ```
 
-Social SDK runs on Node.js 22.12 or later and on Bun. The package is ESM-only and these examples use top-level `await`, so on Node.js set `"type": "module"` in `package.json` (`npm pkg set type=module`) before you run it with `tsx`. Without it, `tsx` fails with "Top-level await is currently not supported with the "cjs" output format". Bun runs either way. The [installation guide](/getting-started/installation) covers the runtime requirements and the `social-sdk doctor` setup check.
+Social SDK runs on Node.js 22.12 or later and on Bun. The package is ESM-only and these examples use top-level `await`, so on Node.js set `"type": "module"` in `package.json` (`npm pkg set type=module`) before you run it with `tsx`, or, in an existing CommonJS project, give the file a `.mts` extension. Without either, `tsx` fails with "Top-level await is currently not supported with the "cjs" output format". Bun runs either way. The [installation guide](/getting-started/installation) covers the runtime requirements and the `social-sdk doctor` setup check.
 
-Save this as `quickstart.ts`:
+Save this as `quickstart.ts`, or `quickstart.mts` in an existing CommonJS project:
 
 ```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
@@ -46,7 +46,7 @@ console.log(result.status, result.outcomes[0]?.state);
 // complete published
 ```
 
-Run it with `bun quickstart.ts`, or on Node.js with `npx tsx quickstart.ts`. It runs without credentials and makes no network request. The repository keeps a tested copy in [`examples/snippets/mock-quickstart.ts`](https://github.com/opencoredev/social-sdk/blob/main/examples/snippets/mock-quickstart.ts).
+Run it with `bun quickstart.ts`, or on Node.js with `npx tsx quickstart.ts` (`npx tsx quickstart.mts` for the `.mts` file). It runs without credentials and makes no network request. The repository keeps a tested copy in [`examples/snippets/mock-quickstart.ts`](https://github.com/opencoredev/social-sdk/blob/main/examples/snippets/mock-quickstart.ts).
 
 ## What the example proves
 
@@ -65,7 +65,7 @@ Run it with `bun quickstart.ts`, or on Node.js with `npx tsx quickstart.ts`. It 
 | `mock-account-1` | `x`        | `mock.creator` |
 | `mock-account-2` | `threads`  | `mock.studio`  |
 
-Append this to `quickstart.ts` to print them:
+Append this to your quickstart file to print them:
 
 ```ts
 const accounts = await social.accounts.list();
@@ -73,7 +73,7 @@ console.log(accounts.items.map(({ ref }) => `${ref.accountId} ${ref.platform}`))
 // [ "mock-account-1 x", "mock-account-2 threads" ]
 ```
 
-Publishing does not check this list. `social.posts.publish` accepts any non-empty `accountId` and `platform`, such as `bluesky` or `linkedin`, as long as the reference's `backend` names the configured backend. With this page's `createSocial({ backend: mock })` setup that name is `"default"`. Any other name makes `publish` throw an `invalid_input` error whose `issues` include `target.backend_unknown`. `social.accounts.get` finds only the two ids above, and the comment methods accept only these two `accountId` and `platform` pairs.
+Publishing does not check this list. `social.posts.publish` accepts any non-empty `accountId` and `platform`, such as `bluesky` or `linkedin`, as long as the reference's `backend` names the configured backend. With this page's `createSocial({ backend: mock })` setup that name is `"default"`. Any other non-empty name makes `publish` throw an `invalid_input` error whose `issues` include `target.backend_unknown`. `social.accounts.get` finds only the two ids above, and the comment methods accept only these two `accountId` and `platform` pairs.
 
 ## Failure exercise
 
