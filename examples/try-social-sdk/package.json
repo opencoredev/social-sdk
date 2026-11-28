@@ -6,7 +6,7 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
-    "@opencoredev/social-sdk": "0.6.0",
+    "@opencoredev/social-sdk": "0.7.0",
     "tsx": "4.23.15"
   },
   "engines": {
