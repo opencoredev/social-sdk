@@ -2,7 +2,7 @@
 
 TypeScript social platform integrations with direct and optional managed backends.
 
-This package is ESM-only. Provider credentials stay on the server. Importing the root or constructing a client makes no network requests.
+This package is ESM-only, and the example below uses top-level `await`. On Node.js, set `"type": "module"` in `package.json` (`npm pkg set type=module`) or use a `.mts` file, then run it with `npx tsx <file>`. Bun runs it either way with `bun <file>`. Provider credentials stay on the server. Importing the root or constructing a client makes no network requests.
 
 Supported runtimes are Node.js 22.12+, Node.js 24, and Bun.
 
